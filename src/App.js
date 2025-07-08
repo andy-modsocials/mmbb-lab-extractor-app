@@ -27,9 +27,9 @@ const toBase64 = file => new Promise((resolve, reject) => {
 
 export default function App() {
     // --- State Management ---
-    const [gapi, setGapi] = useState(null);
-    const [googleAuth, setGoogleAuth] = useState(null);
-    const [isLoggedIn, setIsLoggedIn] = useState(false);
+    const [gapiClient, setGapiClient] = useState(null);
+    const [tokenClient, setTokenClient] = useState(null);
+    const [accessToken, setAccessToken] = useState(null);
     const [spreadsheetId, setSpreadsheetId] = useState(null);
     
     const [clientList, setClientList] = useState([]);
@@ -49,59 +49,83 @@ export default function App() {
             return;
         }
 
-        const script = document.createElement('script');
-        script.src = 'https://apis.google.com/js/api.js';
-        script.onload = () => {
-            window.gapi.load('client:auth2', async () => {
-                try {
-                    await window.gapi.client.init({
-                        apiKey: API_KEY,
-                        clientId: CLIENT_ID,
-                        discoveryDocs: DISCOVERY_DOCS,
-                        scope: SCOPES,
-                    });
-                    setGapi(window.gapi);
-                    const auth = window.gapi.auth2.getAuthInstance();
-                    if (auth) {
-                        setGoogleAuth(auth);
-                        setIsLoggedIn(auth.isSignedIn.get());
-                        auth.isSignedIn.listen(updateSignInStatus);
-                    } else {
-                        throw new Error("Could not get Google Auth instance. Check your Client ID configuration and authorized origins in Google Cloud Console.");
-                    }
-                } catch (e) {
-                    setError(e.message || "Failed to initialize Google API. Please check your API Key and Client ID configuration.");
-                    console.error("GAPI Init Error:", e);
-                }
-            });
-        };
-        document.body.appendChild(script);
+        const gapiScript = document.createElement('script');
+        gapiScript.src = 'https://apis.google.com/js/api.js';
+        gapiScript.onload = () => window.gapi.load('client', initializeGapiClient);
+        document.body.appendChild(gapiScript);
+
+        const gisScript = document.createElement('script');
+        gisScript.src = 'https://accounts.google.com/gsi/client';
+        gisScript.onload = initializeGisClient;
+        document.body.appendChild(gisScript);
     }, []);
 
-    const updateSignInStatus = (signedIn) => {
-        setIsLoggedIn(signedIn);
-        if (!signedIn) {
-            setClientList([]);
-            setActiveClientData(null);
-            setSelectedClient(null);
-            setSpreadsheetId(null);
+    const initializeGapiClient = async () => {
+        try {
+            await window.gapi.client.init({
+                apiKey: API_KEY,
+                discoveryDocs: DISCOVERY_DOCS,
+            });
+            setGapiClient(window.gapi.client);
+        } catch (e) {
+            setError("Failed to initialize Google API Client. Check API Key and enabled APIs.");
+            console.error("GAPI Client Init Error:", e);
+        }
+    };
+
+    const initializeGisClient = () => {
+        try {
+            const client = window.google.accounts.oauth2.initTokenClient({
+                client_id: CLIENT_ID,
+                scope: SCOPES,
+                callback: (tokenResponse) => {
+                    if (tokenResponse && tokenResponse.access_token) {
+                        setAccessToken(tokenResponse.access_token);
+                    } else {
+                        console.error("Token response was empty or invalid.");
+                    }
+                },
+            });
+            setTokenClient(client);
+        } catch (e) {
+            setError("Failed to initialize Google Identity Services. Check Client ID.");
+            console.error("GIS Client Init Error:", e);
         }
     };
     
     useEffect(() => {
-        if (isLoggedIn && gapi) {
+        if (accessToken && gapiClient) {
+            gapiClient.setToken({ access_token: accessToken });
             loadClientList();
         }
-    }, [isLoggedIn, gapi]);
+    }, [accessToken, gapiClient]);
     
+    const handleAuthClick = () => {
+        if (tokenClient) {
+            tokenClient.requestAccessToken({ prompt: 'consent' });
+        }
+    };
+
+    const handleSignoutClick = () => {
+        if (accessToken) {
+            window.google.accounts.oauth2.revoke(accessToken, () => {
+                setAccessToken(null);
+                setClientList([]);
+                setActiveClientData(null);
+                setSelectedClient(null);
+            });
+        }
+    };
+
     const handleClientSelection = async (clientName) => {
+        if (!gapiClient || !accessToken) return;
         setSelectedClient(clientName);
         setActiveClientData(null);
         setIsLoading(true);
         setLoadingMessage(`Loading data for ${clientName}...`);
         setError(null);
         try {
-            const response = await gapi.client.sheets.spreadsheets.values.get({
+            const response = await gapiClient.sheets.spreadsheets.values.get({
                 spreadsheetId: spreadsheetId,
                 range: `'${clientName}'!A:Z`,
             });
@@ -109,21 +133,19 @@ export default function App() {
             setActiveClientData(values);
         } catch (err) {
             console.error("Error loading sheet data:", err);
-            setError(`Failed to load data for ${clientName}. The sheet might be empty or there was a permission issue.`);
+            setError(`Failed to load data for ${clientName}.`);
         } finally {
             setIsLoading(false);
             setLoadingMessage('');
         }
     };
 
-    const handleAuthClick = () => googleAuth.signIn();
-    const handleSignoutClick = () => googleAuth.signOut();
-
     const loadClientList = async () => {
+        if (!gapiClient || !accessToken) return;
         setIsLoading(true);
         setLoadingMessage('Finding your data sheet...');
         try {
-            const response = await gapi.client.drive.files.list({
+            const response = await gapiClient.drive.files.list({
                 q: `mimeType='application/vnd.google-apps.spreadsheet' and name='${SPREADSHEET_NAME}' and trashed=false`,
                 fields: 'files(id, name)',
             });
@@ -131,7 +153,7 @@ export default function App() {
 
             if (!SPREADSHEET_ID) {
                 setLoadingMessage('Creating new data sheet in your Google Drive...');
-                const createResponse = await gapi.client.sheets.spreadsheets.create({
+                const createResponse = await gapiClient.sheets.spreadsheets.create({
                     properties: { title: SPREADSHEET_NAME },
                     sheets: [{ properties: { title: 'Welcome' } }]
                 });
@@ -140,7 +162,7 @@ export default function App() {
             setSpreadsheetId(SPREADSHEET_ID);
             
             setLoadingMessage('Loading client list...');
-            const sheetDataResponse = await gapi.client.sheets.spreadsheets.get({
+            const sheetDataResponse = await gapiClient.sheets.spreadsheets.get({
                 spreadsheetId: SPREADSHEET_ID,
                 fields: 'sheets.properties.title',
             });
@@ -148,7 +170,7 @@ export default function App() {
             setClientList(sheets);
 
         } catch (err) {
-            setError('Could not load data from Google Sheets. Please ensure you have granted permissions and enabled the Drive and Sheets APIs.');
+            setError('Could not load data from Google Sheets. Ensure permissions are granted and APIs are enabled.');
             console.error("Error loading data:", err);
         } finally {
             setIsLoading(false);
@@ -172,7 +194,6 @@ export default function App() {
             const base64Data = await toBase64(file);
             const prompt = `You are an expert lab value extraction tool. Analyze the provided document. Extract only the specified markers. Return a single JSON object where keys are categories, and values are arrays of objects with "marker", "value", and "units". Requested Markers: Hormones, Thyroid Panel, Vitamins & Nutrients, Glucose / Insulin / Metabolic, CBC Panel, Electrolytes / Other.`;
             const payload = { contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: file.type, data: base64Data } }] }] };
-            const geminiApiKey = ""; // This should be your Gemini API Key if different from the Sheets API Key
             const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
 
             const geminiResponse = await fetch(geminiApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -198,14 +219,14 @@ export default function App() {
             setIsLoading(false);
             setLoadingMessage('');
         }
-    }, [newClientName, spreadsheetId, gapi, clientList]);
+    }, [newClientName, spreadsheetId, gapiClient, clientList, accessToken]);
 
     const writeToSheet = async (clientName, fileName, extractedData) => {
         const sheetExists = clientList.includes(clientName);
         let existingData = [];
 
         if (sheetExists) {
-            const response = await gapi.client.sheets.spreadsheets.values.get({ spreadsheetId, range: `'${clientName}'!A:Z` });
+            const response = await gapiClient.sheets.spreadsheets.values.get({ spreadsheetId, range: `'${clientName}'!A:Z` });
             existingData = response.result.values || [];
         }
 
@@ -213,7 +234,6 @@ export default function App() {
         let updatedData = [];
 
         if (existingData.length === 0) {
-            // New sheet, create headers
             updatedData.push(['Marker', 'Reference Range', newColumnHeader]);
             const allMarkers = Object.keys(REFERENCE_RANGES);
             allMarkers.forEach(marker => {
@@ -223,9 +243,8 @@ export default function App() {
                 updatedData.push([marker, rangeString, extractedValue]);
             });
         } else {
-            // Existing sheet, append column
             updatedData = existingData;
-            updatedData[0].push(newColumnHeader); // Add new header
+            updatedData[0].push(newColumnHeader);
             for (let i = 1; i < updatedData.length; i++) {
                 const marker = updatedData[i][0];
                 const extractedValue = findValue(extractedData, marker);
@@ -233,19 +252,18 @@ export default function App() {
             }
         }
         
-        const body = { values: updatedData };
         if (!sheetExists) {
-            await gapi.client.sheets.spreadsheets.batchUpdate({
+            await gapiClient.sheets.spreadsheets.batchUpdate({
                 spreadsheetId,
                 resource: { requests: [{ addSheet: { properties: { title: clientName } } }] }
             });
         }
         
-        await gapi.client.sheets.spreadsheets.values.update({
+        await gapiClient.sheets.spreadsheets.values.update({
             spreadsheetId,
             range: `'${clientName}'!A1`,
             valueInputOption: 'USER_ENTERED',
-            resource: body,
+            resource: { values: updatedData },
         });
     };
     
@@ -327,11 +345,11 @@ export default function App() {
         )
     }
 
-    if (!gapi) {
+    if (!gapiClient || !tokenClient) {
         return <div className="flex items-center justify-center h-screen"><Loader className="animate-spin h-10 w-10" /></div>;
     }
 
-    if (!isLoggedIn) {
+    if (!accessToken) {
         return (
             <div className="flex flex-col items-center justify-center h-screen bg-gray-100">
                 <h1 className="text-4xl font-bold text-gray-800 mb-2">Lab Value Extractor</h1>
