@@ -1,15 +1,15 @@
 {
   "files": {
     "main.css": "/mmbb-lab-extractor-app/static/css/main.e6c13ad2.css",
-    "main.js": "/mmbb-lab-extractor-app/static/js/main.d4a401f9.js",
+    "main.js": "/mmbb-lab-extractor-app/static/js/main.64cd9f55.js",
     "static/js/453.e9e93b15.chunk.js": "/mmbb-lab-extractor-app/static/js/453.e9e93b15.chunk.js",
     "index.html": "/mmbb-lab-extractor-app/index.html",
     "main.e6c13ad2.css.map": "/mmbb-lab-extractor-app/static/css/main.e6c13ad2.css.map",
-    "main.d4a401f9.js.map": "/mmbb-lab-extractor-app/static/js/main.d4a401f9.js.map",
+    "main.64cd9f55.js.map": "/mmbb-lab-extractor-app/static/js/main.64cd9f55.js.map",
     "453.e9e93b15.chunk.js.map": "/mmbb-lab-extractor-app/static/js/453.e9e93b15.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.e6c13ad2.css",
-    "static/js/main.d4a401f9.js"
+    "static/js/main.64cd9f55.js"
   ]
 }
