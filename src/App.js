@@ -13,8 +13,8 @@ const DISCOVERY_DOCS = [
 const SCOPES = "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file";
 const SPREADSHEET_NAME = "LabValueExtractor_Data";
 
-// --- GoHighLevel/Make.com Webhook Configuration ---
-// IMPORTANT: Replace this with the webhook URL you get from Make.com in Part 2.
+// --- GoHighLevel Configuration ---
+// IMPORTANT: Replace this with the webhook URL you get from Make.com.
 const MAKE_WEBHOOK_URL = "https://hook.us2.make.com/tqphg08ye5enlrwuj1kkjyo9iea5dtej";
 
 // --- Reference Ranges ---
@@ -72,10 +72,6 @@ export default function App() {
         gisScript.src = 'https://accounts.google.com/gsi/client';
         gisScript.onload = initializeGisClient;
         document.body.appendChild(gisScript);
-
-        if (window.pdfjsLib) {
-            window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.102/pdf.worker.min.js`;
-        }
     }, []);
 
     const initializeGapiClient = async () => {
@@ -135,7 +131,6 @@ export default function App() {
         }
     };
 
-    // Refactored core data loading logic
     const loadDataForClient = async (clientEmail) => {
         if (!gapiClient || !accessToken) return;
         setActiveClientData(null);
@@ -227,36 +222,14 @@ export default function App() {
         setError(null);
 
         try {
-            let fileParts = [];
-            
-            if (file.type === 'application/pdf') {
-                setLoadingMessage('Processing PDF...');
-                const arrayBuffer = await file.arrayBuffer();
-                const pdf = await window.pdfjsLib.getDocument(arrayBuffer).promise;
-                const numPages = pdf.numPages;
-
-                for (let i = 1; i <= numPages; i++) {
-                    setLoadingMessage(`Processing Page ${i} of ${numPages}...`);
-                    const page = await pdf.getPage(i);
-                    const viewport = page.getViewport({ scale: 2.0 });
-                    const canvas = document.createElement('canvas');
-                    const context = canvas.getContext('2d');
-                    canvas.height = viewport.height;
-                    canvas.width = viewport.width;
-                    await page.render({ canvasContext: context, viewport: viewport }).promise;
-                    const base64Data = canvas.toDataURL('image/jpeg').split(',')[1];
-                    fileParts.push({ inlineData: { mimeType: 'image/jpeg', data: base64Data } });
-                }
-            } else {
-                setLoadingMessage('Processing Image...');
-                const base64Data = await toBase64(file);
-                fileParts.push({ inlineData: { mimeType: file.type, data: base64Data } });
-            }
+            setLoadingMessage('Processing file...');
+            const base64Data = await toBase64(file);
+            const fileParts = [{ inlineData: { mimeType: file.type, data: base64Data } }];
 
             setLoadingMessage('Analyzing document with AI...');
             const prompt = `
-                You are an expert lab value extraction tool. Analyze the provided document images. The images represent pages of a single report.
-                Extract the report date (collection date) and any of the lab values from the requested list below. Consolidate results from all pages into a single JSON object.
+                You are an expert lab value extraction tool. Analyze the provided document image.
+                Extract the report date (collection date) and any of the lab values from the requested list below.
                 CRITICAL INSTRUCTION: Only extract the markers explicitly listed. If a marker like 'Cortisol' is present but not in the requested list, you MUST ignore it completely.
                 Be flexible with names; for example, "TESTOSTERONE, TOTAL, MS" should be "Testosterone". 
                 Pay close attention to layouts where the marker, units, and value might be on separate lines. For example, if you see "ESTRADIOL" on one line, "pg/mL" on the line below, and the value "65" to the right, you must correctly associate these as a single Estradiol result.
