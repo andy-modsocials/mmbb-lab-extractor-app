@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Loader, UploadCloud, Copy, Check, XCircle, Trash2, UserPlus, Search, Users, LogIn, LogOut } from 'lucide-react';
+import { Loader, UploadCloud, Copy, Check, XCircle, Trash2, UserPlus, Search, Users, LogIn, LogOut, Save, PlusCircle } from 'lucide-react';
 
 // --- Google API Configuration ---
 // IMPORTANT: Replace these with your own keys from Google Cloud Console.
@@ -37,6 +37,7 @@ export default function App() {
     const [selectedClient, setSelectedClient] = useState(null);
     const [newClientName, setNewClientName] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
+    const [isDirty, setIsDirty] = useState(false);
     
     const [isLoading, setIsLoading] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState('');
@@ -118,11 +119,17 @@ export default function App() {
     };
 
     const handleClientSelection = async (clientName) => {
+        if (isDirty) {
+            if (!window.confirm("You have unsaved changes. Are you sure you want to switch clients? Your changes will be lost.")) {
+                return;
+            }
+        }
         if (!gapiClient || !accessToken) return;
         setSelectedClient(clientName);
-        setNewClientName(clientName); // Auto-populate the input field
+        setNewClientName(clientName);
         setActiveClientData(null);
         setIsLoading(true);
+        setIsDirty(false);
         setLoadingMessage(`Loading data for ${clientName}...`);
         setError(null);
         try {
@@ -193,7 +200,20 @@ export default function App() {
 
         try {
             const base64Data = await toBase64(file);
-            const prompt = `You are an expert lab value extraction tool. Analyze the provided document. Extract only the specified markers. Return a single JSON object where keys are categories, and values are arrays of objects with "marker", "value", and "units". Requested Markers: Hormones, Thyroid Panel, Vitamins & Nutrients, Glucose / Insulin / Metabolic, CBC Panel, Electrolytes / Other.`;
+            const prompt = `
+                You are an expert lab value extraction tool. Analyze the provided document.
+                Extract any of the following lab values. Be flexible with the names; for example, if you see "TESTOSTERONE, TOTAL, MS", extract it as "Testosterone". If you see "Estradiol", extract it as "Estradiol (E2)".
+                Return a single JSON object where keys are categories, and values are arrays of objects with "marker", "value", and "units".
+                If a marker is not found, do not include it.
+
+                Requested Markers and their common aliases:
+                - Hormones: LH, FSH, Estradiol (E2, Estradiol), Progesterone, Prolactin, Testosterone (Testosterone Total, Testosterone Free), DHEA-S, AMH
+                - Thyroid Panel: TSH, Free T3, Free T4, Total T3, Total T4
+                - Vitamins & Nutrients: Vitamin D, B12, Ferritin, Iron, Iron Saturation, TIBC
+                - Glucose / Insulin / Metabolic: Fasting Glucose, Fasting Insulin, HbA1c, Cholesterol Total, HDL, LDL, Triglycerides
+                - CBC Panel: Hemoglobin, Hematocrit, WBC, RBC, Platelets, MCV, MCH, MCHC, Neutrophils, Lymphocytes, Monocytes, Eosinophils, Basophils
+                - Electrolytes / Other: Sodium, Potassium, Alkaline Phosphatase
+            `;
             const payload = { contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: file.type, data: base64Data } }] }] };
             const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
 
@@ -209,9 +229,9 @@ export default function App() {
             setLoadingMessage('Saving data to Google Sheets...');
             await writeToSheet(newClientName.trim(), file.name, parsedJson);
             
-            setNewClientName('');
             await loadClientList();
             await handleClientSelection(newClientName.trim());
+            setNewClientName(newClientName.trim());
 
         } catch (err) {
             console.error("Processing Error:", err);
@@ -249,6 +269,10 @@ export default function App() {
             for (let i = 1; i < updatedData.length; i++) {
                 const marker = updatedData[i][0];
                 const extractedValue = findValue(extractedData, marker);
+                // Ensure row is long enough before pushing
+                while (updatedData[i].length < updatedData[0].length -1) {
+                    updatedData[i].push('—');
+                }
                 updatedData[i].push(extractedValue);
             }
         }
@@ -268,9 +292,56 @@ export default function App() {
         });
     };
     
+    const handleAddManualColumn = () => {
+        const date = prompt("Enter a date or note for the new column (e.g., 'Manual Entry 7/9/2025'):");
+        if (!date || !activeClientData) return;
+
+        const newData = activeClientData.map((row, index) => {
+            if (index === 0) {
+                return [...row, date]; // Add header
+            }
+            return [...row, '—']; // Add placeholder value
+        });
+        setActiveClientData(newData);
+        setIsDirty(true);
+    };
+    
+    const handleSaveManualChanges = async () => {
+        if (!selectedClient || !activeClientData) return;
+        setIsLoading(true);
+        setLoadingMessage('Saving changes to Google Sheets...');
+        setError(null);
+        try {
+            await gapiClient.sheets.spreadsheets.values.update({
+                spreadsheetId,
+                range: `'${selectedClient}'!A1`,
+                valueInputOption: 'USER_ENTERED',
+                resource: { values: activeClientData },
+            });
+            setIsDirty(false);
+        } catch (err) {
+            console.error("Error saving data:", err);
+            setError("Failed to save changes. Please try again.");
+        } finally {
+            setIsLoading(false);
+            setLoadingMessage('');
+        }
+    };
+
+    const handleCellChange = (rowIndex, colIndex, value) => {
+        const updatedData = activeClientData.map((row, rIdx) => {
+            if (rIdx === rowIndex) {
+                return row.map((cell, cIdx) => (cIdx === colIndex ? value : cell));
+            }
+            return row;
+        });
+        setActiveClientData(updatedData);
+        setIsDirty(true);
+    };
+    
     const findValue = (extractedData, markerName) => {
         for (const category in extractedData) {
-            const found = extractedData[category].find(item => item.marker === markerName);
+            const found = extractedData[category].find(item => item.marker === markerName || item.marker.includes(markerName));
             if (found) return `${found.value} ${found.units || ''}`.trim();
         }
         return '—';
@@ -307,7 +378,19 @@ export default function App() {
 
         return (
              <div className="p-4 sm:p-6">
-                <h2 className="text-2xl font-bold text-gray-800 mb-4">Results for: <span className="text-blue-600">{selectedClient}</span></h2>
+                <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
+                    <h2 className="text-2xl font-bold text-gray-800">Results for: <span className="text-blue-600">{selectedClient}</span></h2>
+                    <div className="flex gap-2">
+                        <button onClick={handleAddManualColumn} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-all">
+                            <PlusCircle size={20} /> Add Manual Column
+                        </button>
+                        {isDirty && (
+                            <button onClick={handleSaveManualChanges} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-all animate-pulse">
+                                <Save size={20} /> Save Changes
+                            </button>
+                        )}
+                    </div>
+                </div>
                 <div className="overflow-x-auto bg-white rounded-xl shadow-md border border-gray-200">
                     <table className="w-full text-sm text-left text-gray-600">
                         <thead className="text-xs text-gray-700 uppercase bg-gray-100">
@@ -323,7 +406,16 @@ export default function App() {
                                         let statusClass = '';
                                         if (status === 'low') statusClass = 'bg-blue-100 text-blue-800 font-bold';
                                         if (status === 'high') statusClass = 'bg-red-100 text-red-800 font-bold';
-                                        return <td key={cellIndex} className={`px-6 py-4 ${statusClass}`}>{cell}</td>;
+                                        return (
+                                            <td key={cellIndex} className={`px-1 py-1 ${statusClass}`}>
+                                                <input 
+                                                    type="text" 
+                                                    value={cell} 
+                                                    onChange={(e) => handleCellChange(rowIndex + 1, cellIndex, e.target.value)}
+                                                    className="w-full p-2 bg-transparent border border-transparent focus:bg-white focus:border-blue-500 rounded-md outline-none text-center"
+                                                />
+                                            </td>
+                                        );
                                     })}
                                 </tr>
                             ))}
