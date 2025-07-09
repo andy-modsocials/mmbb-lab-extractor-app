@@ -231,9 +231,18 @@ export default function App() {
                 You are an expert lab value extraction tool. Analyze the provided document image.
                 Extract the report date (collection date) and any of the lab values from the requested list below.
                 CRITICAL INSTRUCTION: Only extract the markers explicitly listed. If a marker like 'Cortisol' is present but not in the requested list, you MUST ignore it completely.
-                Be flexible with names; for example, "TESTOSTERONE, TOTAL, MS" should be "Testosterone". 
-                Return a single JSON object with a top-level key "reportDate" and other keys for categories.
-                Requested Markers: Hormones, Thyroid Panel, Vitamins & Nutrients, Glucose / Insulin / Metabolic, CBC Panel, Electrolytes / Other.
+                Be flexible with names; for example, "TESTOSTERONE, TOTAL, MS" should be "Testosterone".
+                
+                Return a single JSON object. The JSON should have a top-level key "reportDate" with the extracted date string. The other keys should be categories, with values being arrays of objects. Each object in the array MUST have three keys: "marker", "value", and "units".
+                Example: {"Hormones": [{"marker": "Testosterone", "value": "13", "units": "ng/dL"}]}
+
+                Requested Markers and their common aliases:
+                - Hormones: LH, FSH, Estradiol (E2, Estradiol), Progesterone, Prolactin, Testosterone (Testosterone Total, Testosterone Free), DHEA-S, AMH
+                - Thyroid Panel: TSH, Free T3, Free T4, Total T3, Total T4
+                - Vitamins & Nutrients: Vitamin D, B12, Ferritin, Iron, Iron Saturation, TIBC
+                - Glucose / Insulin / Metabolic: Fasting Glucose, Fasting Insulin, HbA1c, Cholesterol Total, HDL, LDL, Triglycerides
+                - CBC Panel: Hemoglobin, Hematocrit, WBC, RBC, Platelets, MCV, MCH, MCHC, Neutrophils, Lymphocytes, Monocytes, Eosinophils, Basophils
+                - Electrolytes / Other: Sodium, Potassium, Alkaline Phosphatase
             `;
             const payload = { contents: [{ role: "user", parts: [{ text: prompt }, filePart] }] };
             const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
@@ -241,7 +250,7 @@ export default function App() {
             const geminiResponse = await fetch(geminiApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
             
             const result = await geminiResponse.json();
-            console.log("Raw Gemini Response:", JSON.stringify(result, null, 2)); // Enhanced logging
+            console.log("Raw Gemini Response:", JSON.stringify(result, null, 2));
 
             if (!geminiResponse.ok) {
                 throw new Error(`Gemini API request failed. Status: ${geminiResponse.status}. Response: ${JSON.stringify(result)}`);
@@ -511,14 +520,16 @@ export default function App() {
         }
     };
     
-    const findValue = (extractedData, markerName) => {
-        const markerNameToMatch = markerName.toLowerCase().replace(/ \(.+\)/, ''); // "Estradiol (E2)" -> "estradiol"
+    // Updated findValue function for more robust matching
+    const findValue = (extractedData, markerNameInTable) => {
+        const markerToMatch = markerNameInTable.toLowerCase().replace(/ \(.+\)/, ''); // "Estradiol (E2)" -> "estradiol"
         for (const category in extractedData) {
-            if (Array.isArray(extractedData[category])) {
-                const found = extractedData[category].find(item => {
+            const categoryData = extractedData[category];
+            if (Array.isArray(categoryData)) {
+                const found = categoryData.find(item => {
                     if (!item.marker) return false;
                     const itemMarker = item.marker.toLowerCase();
-                    return itemMarker.includes(markerNameToMatch);
+                    return itemMarker.includes(markerToMatch);
                 });
                 if (found) return `${found.value} ${found.units || ''}`.trim();
             }
