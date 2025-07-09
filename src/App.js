@@ -221,7 +221,7 @@ export default function App() {
             const base64Data = await toBase64(file);
             const prompt = `
                 You are an expert lab value extraction tool. Analyze the provided document.
-                Extract the report date (collection date) and any of the following lab values. Be flexible with the names; for example, if you see "TESTOSTERONE, TOTAL, MS", extract it as "Testosterone".
+                Extract the report date (collection date) and any of the following lab values. Be flexible with the names; for example, if you see "TESTOSTERONE, TOTAL, MS", extract it as "Testosterone". The units for a marker might be on a separate line below the marker name - correctly associate them.
                 Return a single JSON object. The JSON should have a top-level key "reportDate" with the extracted date string. The other keys should be categories, with values being arrays of objects with "marker", "value", and "units".
                 If a marker or date is not found, do not include it.
 
