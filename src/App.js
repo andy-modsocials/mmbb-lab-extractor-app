@@ -125,22 +125,11 @@ export default function App() {
         }
     };
 
-    const handleClientSelection = async (clientName) => {
-        if (processingRef.current) {
-            alert("Please wait for the current operation to complete.");
-            return;
-        }
-        if (isDirty) {
-            if (!window.confirm("You have unsaved changes. Are you sure you want to switch clients? Your changes will be lost.")) {
-                return;
-            }
-        }
+    // Refactored core data loading logic
+    const loadDataForClient = async (clientName) => {
         if (!gapiClient || !accessToken) return;
-        setSelectedClient(clientName);
-        setNewClientName(clientName);
         setActiveClientData(null);
         setIsLoading(true);
-        setIsDirty(false);
         setLoadingMessage(`Loading data for ${clientName}...`);
         setError(null);
         try {
@@ -157,6 +146,22 @@ export default function App() {
             setIsLoading(false);
             setLoadingMessage('');
         }
+    };
+
+    const handleClientSelection = async (clientName) => {
+        if (processingRef.current) {
+            alert("Please wait for the current operation to complete.");
+            return;
+        }
+        if (isDirty) {
+            if (!window.confirm("You have unsaved changes. Are you sure you want to switch clients? Your changes will be lost.")) {
+                return;
+            }
+        }
+        setSelectedClient(clientName);
+        setNewClientName(clientName);
+        setIsDirty(false);
+        await loadDataForClient(clientName);
     };
 
     const loadClientList = async () => {
@@ -244,7 +249,8 @@ export default function App() {
             await writeToSheet(newClientName.trim(), file.name, parsedJson);
             
             await loadClientList();
-            await handleClientSelection(newClientName.trim());
+            setSelectedClient(newClientName.trim());
+            await loadDataForClient(newClientName.trim());
             setNewClientName(newClientName.trim());
 
         } catch (err) {
