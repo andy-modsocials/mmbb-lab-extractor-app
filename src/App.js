@@ -4,8 +4,8 @@ import { Loader, UploadCloud, Copy, Check, XCircle, Trash2, UserPlus, Search, Us
 
 // --- Google API Configuration ---
 // IMPORTANT: Replace these with your own keys from Google Cloud Console.
-const API_KEY = "AIzaSyAQwhvrHr2mFXFqXSkwRjEmsLUPRqf4j0Q"; // Your Google Cloud API Key
-const CLIENT_ID = "386603214898-n68abvt1m8pq64pv9l881nnjj1mldfnb.apps.googleusercontent.com"; // Your Google Cloud OAuth 2.0 Client ID
+const API_KEY = "YOUR_GOOGLE_API_KEY"; // Your Google Cloud API Key
+const CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID"; // Your Google Cloud OAuth 2.0 Client ID
 const DISCOVERY_DOCS = [
     "https://sheets.googleapis.com/$discovery/rest?version=v4",
     "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"
@@ -421,23 +421,38 @@ export default function App() {
                 <div className="overflow-x-auto bg-white rounded-xl shadow-md border border-gray-200">
                     <table className="w-full text-sm text-left text-gray-600">
                         <thead className="text-xs text-gray-700 uppercase bg-gray-100">
-                            <tr>{headers.map((h, i) => (
-                                <th key={i} scope="col" className="px-1 py-1 whitespace-pre-wrap relative group">
-                                    {i < 2 ? <div className="px-5 py-2">{h}</div> : (
-                                        <textarea 
-                                            value={h}
-                                            onChange={(e) => handleHeaderChange(i, e.target.value)}
-                                            className="w-full p-2 bg-transparent border border-transparent focus:bg-white focus:border-blue-500 rounded-md outline-none text-center font-bold"
-                                            rows={2}
-                                        />
-                                    )}
-                                    {i > 1 && (
+                            <tr>{headers.map((h, i) => {
+                                if (i < 2) {
+                                    return <th key={i} scope="col" className="px-6 py-3 whitespace-pre-wrap relative group">{h}</th>;
+                                }
+                                const [date, ...fileNameParts] = h.split('\n');
+                                const fileName = fileNameParts.join('\n');
+                                
+                                return (
+                                    <th key={i} scope="col" className="px-1 py-1 whitespace-pre-wrap relative group">
+                                        <div className="flex flex-col items-center justify-center">
+                                            <input
+                                                type="text"
+                                                value={date}
+                                                onChange={(e) => handleHeaderChange(i, `${e.target.value}\n${fileName}`)}
+                                                className="w-full p-1 bg-transparent border border-transparent focus:bg-white focus:border-blue-500 rounded-md outline-none text-center font-semibold text-gray-800"
+                                                aria-label="Report Date"
+                                            />
+                                            <input
+                                                type="text"
+                                                value={fileName}
+                                                onChange={(e) => handleHeaderChange(i, `${date}\n${e.target.value}`)}
+                                                className="w-full p-1 bg-transparent border border-transparent focus:bg-white focus:border-blue-500 rounded-md outline-none text-center text-xs text-gray-500 truncate"
+                                                title={fileName}
+                                                aria-label="File Name"
+                                            />
+                                        </div>
                                         <button onClick={() => handleDeleteColumn(i)} className="absolute top-1 right-1 p-1 bg-red-100 text-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
                                             <Trash2 size={14} />
                                         </button>
-                                    )}
-                                </th>
-                            ))}</tr>
+                                    </th>
+                                );
+                            })}</tr>
                         </thead>
                         <tbody>
                             {rows.map((row, rowIndex) => (
