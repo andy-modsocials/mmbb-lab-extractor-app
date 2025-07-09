@@ -1,17 +1,21 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Loader, UploadCloud, Copy, Check, XCircle, Trash2, UserPlus, Search, Users, LogIn, LogOut, Save, PlusCircle, BrainCircuit, ChevronDown } from 'lucide-react';
+import { Loader, UploadCloud, Copy, Check, XCircle, Trash2, UserPlus, Search, Users, LogIn, LogOut, Save, PlusCircle, BrainCircuit, ChevronDown, Send } from 'lucide-react';
 
 // --- Google API Configuration ---
 // IMPORTANT: Replace these with your own keys from Google Cloud Console.
-const API_KEY = "AIzaSyAQwhvrHr2mFXFqXSkwRjEmsLUPRqf4j0Q"; // Your Google Cloud API Key
-const CLIENT_ID = "386603214898-n68abvt1m8pq64pv9l881nnjj1mldfnb.apps.googleusercontent.com"; // Your Google Cloud OAuth 2.0 Client ID
+const API_KEY = "YOUR_GOOGLE_API_KEY"; // Your Google Cloud API Key
+const CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID"; // Your Google Cloud OAuth 2.0 Client ID
 const DISCOVERY_DOCS = [
     "https://sheets.googleapis.com/$discovery/rest?version=v4",
     "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"
 ];
 const SCOPES = "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file";
 const SPREADSHEET_NAME = "LabValueExtractor_Data";
+
+// --- GoHighLevel/Make.com Webhook Configuration ---
+// IMPORTANT: Replace this with the webhook URL you get from Make.com in Part 2.
+const MAKE_WEBHOOK_URL = "https://hook.us2.make.com/tqphg08ye5enlrwuj1kkjyo9iea5dtej";
 
 // --- Reference Ranges ---
 const REFERENCE_RANGES = {
@@ -34,8 +38,8 @@ export default function App() {
     
     const [clientList, setClientList] = useState([]);
     const [activeClientData, setActiveClientData] = useState(null);
-    const [selectedClient, setSelectedClient] = useState(null);
-    const [newClientName, setNewClientName] = useState('');
+    const [selectedClientEmail, setSelectedClientEmail] = useState(null);
+    const [newClientEmail, setNewClientEmail] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [isDirty, setIsDirty] = useState(false);
     
@@ -47,6 +51,8 @@ export default function App() {
     const [analysisResult, setAnalysisResult] = useState('');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [isAnalysisDropdownOpen, setIsAnalysisDropdownOpen] = useState(false);
+    const [isSendingToGHL, setIsSendingToGHL] = useState(false);
+    const [ghlStatus, setGhlStatus] = useState('');
     
     const processingRef = useRef(false);
 
@@ -67,7 +73,6 @@ export default function App() {
         gisScript.onload = initializeGisClient;
         document.body.appendChild(gisScript);
 
-        // Set workerSrc for pdf.js
         if (window.pdfjsLib) {
             window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.102/pdf.worker.min.js`;
         }
@@ -125,35 +130,35 @@ export default function App() {
                 setAccessToken(null);
                 setClientList([]);
                 setActiveClientData(null);
-                setSelectedClient(null);
+                setSelectedClientEmail(null);
             });
         }
     };
 
     // Refactored core data loading logic
-    const loadDataForClient = async (clientName) => {
+    const loadDataForClient = async (clientEmail) => {
         if (!gapiClient || !accessToken) return;
         setActiveClientData(null);
         setIsLoading(true);
-        setLoadingMessage(`Loading data for ${clientName}...`);
+        setLoadingMessage(`Loading data for ${clientEmail}...`);
         setError(null);
         try {
             const response = await gapiClient.sheets.spreadsheets.values.get({
                 spreadsheetId: spreadsheetId,
-                range: `'${clientName}'!A:Z`,
+                range: `'${clientEmail}'!A:Z`,
             });
             const values = response.result.values || [];
             setActiveClientData(values);
         } catch (err) {
             console.error("Error loading sheet data:", err);
-            setError(`Failed to load data for ${clientName}.`);
+            setError(`Failed to load data for ${clientEmail}.`);
         } finally {
             setIsLoading(false);
             setLoadingMessage('');
         }
     };
 
-    const handleClientSelection = async (clientName) => {
+    const handleClientSelection = async (clientEmail) => {
         if (processingRef.current) {
             alert("Please wait for the current operation to complete.");
             return;
@@ -163,10 +168,10 @@ export default function App() {
                 return;
             }
         }
-        setSelectedClient(clientName);
-        setNewClientName(clientName);
+        setSelectedClientEmail(clientEmail);
+        setNewClientEmail(clientEmail);
         setIsDirty(false);
-        await loadDataForClient(clientName);
+        await loadDataForClient(clientEmail);
     };
 
     const loadClientList = async () => {
@@ -212,8 +217,8 @@ export default function App() {
 
         const file = acceptedFiles[0];
         if (!file || !spreadsheetId) return;
-        if (!newClientName.trim()) {
-            setError('Please enter a client name.');
+        if (!newClientEmail.trim()) {
+            setError('Please enter a client email.');
             return;
         }
 
@@ -252,22 +257,11 @@ export default function App() {
             const prompt = `
                 You are an expert lab value extraction tool. Analyze the provided document images. The images represent pages of a single report.
                 Extract the report date (collection date) and any of the lab values from the requested list below. Consolidate results from all pages into a single JSON object.
-                
-                CRITICAL INSTRUCTION: Only extract the markers explicitly listed. If a marker like 'Cortisol' is present but not in the requested list, you MUST ignore it completely and not include it in the output.
-                
-                Be flexible with the names; for example, if you see "TESTOSTERONE, TOTAL, MS", extract it as "Testosterone". 
-                Pay close attention to layouts where the marker, units, and value might be on separate lines. For example, if you see "ESTRADIOL" on one line, "pg/mL" on the line below, and the value "65" to the right, you must correctly associate these as a single Estradiol result. The correct JSON output for this example would be: {"marker": "Estradiol (E2)", "value": "65", "units": "pg/mL"}
-
-                Return a single JSON object. The JSON should have a top-level key "reportDate" with the extracted date string. The other keys should be categories, with values being arrays of objects with "marker", "value", and "units".
-                If a marker or date is not found, do not include it.
-
-                Requested Markers and their common aliases:
-                - Hormones: LH, FSH, Estradiol (E2, Estradiol), Progesterone, Prolactin, Testosterone (Testosterone Total, Testosterone Free), DHEA-S, AMH
-                - Thyroid Panel: TSH, Free T3, Free T4, Total T3, Total T4
-                - Vitamins & Nutrients: Vitamin D, B12, Ferritin, Iron, Iron Saturation, TIBC
-                - Glucose / Insulin / Metabolic: Fasting Glucose, Fasting Insulin, HbA1c, Cholesterol Total, HDL, LDL, Triglycerides
-                - CBC Panel: Hemoglobin, Hematocrit, WBC, RBC, Platelets, MCV, MCH, MCHC, Neutrophils, Lymphocytes, Monocytes, Eosinophils, Basophils
-                - Electrolytes / Other: Sodium, Potassium, Alkaline Phosphatase
+                CRITICAL INSTRUCTION: Only extract the markers explicitly listed. If a marker like 'Cortisol' is present but not in the requested list, you MUST ignore it completely.
+                Be flexible with names; for example, "TESTOSTERONE, TOTAL, MS" should be "Testosterone". 
+                Pay close attention to layouts where the marker, units, and value might be on separate lines. For example, if you see "ESTRADIOL" on one line, "pg/mL" on the line below, and the value "65" to the right, you must correctly associate these as a single Estradiol result.
+                Return a single JSON object with a top-level key "reportDate" and other keys for categories.
+                Requested Markers: Hormones, Thyroid Panel, Vitamins & Nutrients, Glucose / Insulin / Metabolic, CBC Panel, Electrolytes / Other.
             `;
             const payload = { contents: [{ role: "user", parts: [{ text: prompt }, ...fileParts] }] };
             const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
@@ -282,12 +276,12 @@ export default function App() {
             const parsedJson = JSON.parse(text);
 
             setLoadingMessage('Saving data to Google Sheets...');
-            await writeToSheet(newClientName.trim(), file.name, parsedJson);
+            await writeToSheet(newClientEmail.trim(), file.name, parsedJson);
             
             await loadClientList();
-            setSelectedClient(newClientName.trim());
-            await loadDataForClient(newClientName.trim());
-            setNewClientName(newClientName.trim());
+            setSelectedClientEmail(newClientEmail.trim());
+            await loadDataForClient(newClientEmail.trim());
+            setNewClientEmail(newClientEmail.trim());
 
         } catch (err) {
             console.error("Processing Error:", err);
@@ -297,14 +291,14 @@ export default function App() {
             setLoadingMessage('');
             processingRef.current = false;
         }
-    }, [newClientName, spreadsheetId, gapiClient, clientList, accessToken]);
+    }, [newClientEmail, spreadsheetId, gapiClient, clientList, accessToken]);
 
-    const writeToSheet = async (clientName, fileName, extractedData) => {
-        const sheetExists = clientList.includes(clientName);
+    const writeToSheet = async (clientEmail, fileName, extractedData) => {
+        const sheetExists = clientList.includes(clientEmail);
         let existingData = [];
 
         if (sheetExists) {
-            const response = await gapiClient.sheets.spreadsheets.values.get({ spreadsheetId, range: `'${clientName}'!A:Z` });
+            const response = await gapiClient.sheets.spreadsheets.values.get({ spreadsheetId, range: `'${clientEmail}'!A:Z` });
             existingData = response.result.values || [];
         }
         
@@ -314,8 +308,7 @@ export default function App() {
 
         if (existingData.length === 0) {
             updatedData.push(['Marker', 'Reference Range', newColumnHeader]);
-            const allMarkers = Object.keys(REFERENCE_RANGES);
-            allMarkers.forEach(marker => {
+            Object.keys(REFERENCE_RANGES).forEach(marker => {
                 const range = REFERENCE_RANGES[marker];
                 const rangeString = `${range.low} - ${range.high} ${range.units}`;
                 const extractedValue = findValue(extractedData, marker);
@@ -337,13 +330,13 @@ export default function App() {
         if (!sheetExists) {
             await gapiClient.sheets.spreadsheets.batchUpdate({
                 spreadsheetId,
-                resource: { requests: [{ addSheet: { properties: { title: clientName } } }] }
+                resource: { requests: [{ addSheet: { properties: { title: clientEmail } } }] }
             });
         }
         
         await gapiClient.sheets.spreadsheets.values.update({
             spreadsheetId,
-            range: `'${clientName}'!A1`,
+            range: `'${clientEmail}'!A1`,
             valueInputOption: 'USER_ENTERED',
             resource: { values: updatedData },
         });
@@ -354,12 +347,7 @@ export default function App() {
         const date = prompt("Enter a date or note for the new column (e.g., 'Manual Entry 7/9/2025'):");
         if (!date || !activeClientData) return;
 
-        const newData = activeClientData.map((row, index) => {
-            if (index === 0) {
-                return [...row, date];
-            }
-            return [...row, '—'];
-        });
+        const newData = activeClientData.map((row, index) => (index === 0) ? [...row, date] : [...row, '—']);
         setActiveClientData(newData);
         setIsDirty(true);
     };
@@ -381,21 +369,17 @@ export default function App() {
     const handleSaveManualChanges = async (dataToSave) => {
         if (processingRef.current) return;
         const data = dataToSave || activeClientData;
-        if (!selectedClient || !data) return;
+        if (!selectedClientEmail || !data) return;
         
         processingRef.current = true;
         setIsLoading(true);
         setLoadingMessage('Saving changes to Google Sheets...');
         setError(null);
         try {
-            await gapiClient.sheets.spreadsheets.values.clear({
-                spreadsheetId,
-                range: `'${selectedClient}'`,
-            });
-
+            await gapiClient.sheets.spreadsheets.values.clear({ spreadsheetId, range: `'${selectedClientEmail}'` });
             await gapiClient.sheets.spreadsheets.values.update({
                 spreadsheetId,
-                range: `'${selectedClient}'!A1`,
+                range: `'${selectedClientEmail}'!A1`,
                 valueInputOption: 'USER_ENTERED',
                 resource: { values: data },
             });
@@ -411,23 +395,13 @@ export default function App() {
     };
 
     const handleCellChange = (rowIndex, colIndex, value) => {
-        const updatedData = activeClientData.map((row, rIdx) => {
-            if (rIdx === rowIndex) {
-                return row.map((cell, cIdx) => (cIdx === colIndex ? value : cell));
-            }
-            return row;
-        });
+        const updatedData = activeClientData.map((row, rIdx) => (rIdx === rowIndex) ? row.map((cell, cIdx) => (cIdx === colIndex ? value : cell)) : row);
         setActiveClientData(updatedData);
         setIsDirty(true);
     };
 
     const handleHeaderChange = (colIndex, value) => {
-        const updatedData = activeClientData.map((row, rIdx) => {
-            if (rIdx === 0) {
-                return row.map((cell, cIdx) => (cIdx === colIndex ? value : cell));
-            }
-            return row;
-        });
+        const updatedData = activeClientData.map((row, rIdx) => (rIdx === 0) ? row.map((cell, cIdx) => (cIdx === colIndex ? value : cell)) : row);
         setActiveClientData(updatedData);
         setIsDirty(true);
     };
@@ -437,6 +411,7 @@ export default function App() {
         
         setIsAnalyzing(true);
         setAnalysisResult('');
+        setGhlStatus('');
         setIsAnalysisModalOpen(true);
         setError(null);
         setIsAnalysisDropdownOpen(false);
@@ -471,14 +446,7 @@ export default function App() {
                     analysisFocus = 'Provide a general overview of the lab results.';
             }
 
-            const prompt = `
-                You are a helpful assistant providing a concise, bullet-pointed analysis of lab results.
-                Analyze the following lab results. ${analysisFocus}
-                Do not provide any medical advice, diagnosis, or treatment recommendations.
-
-                Here is the data:
-                ${labDataString}
-            `;
+            const prompt = `You are a helpful assistant providing a concise, bullet-pointed analysis of lab results. Analyze the following lab results. ${analysisFocus} Do not provide any medical advice, diagnosis, or treatment recommendations. Here is the data:\n${labDataString}`;
 
             const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
             const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
@@ -500,16 +468,44 @@ export default function App() {
         }
     };
     
+    const handleSendToGHL = async () => {
+        if (!selectedClientEmail || !analysisResult || MAKE_WEBHOOK_URL === "YOUR_MAKE_WEBHOOK_URL_HERE") {
+            setGhlStatus("Error: Make.com Webhook URL is not configured.");
+            return;
+        }
+        setIsSendingToGHL(true);
+        setGhlStatus('Sending...');
+        try {
+            const response = await fetch(MAKE_WEBHOOK_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: selectedClientEmail, note: analysisResult })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Webhook request failed with status ${response.status}`);
+            }
+            
+            setGhlStatus('Successfully sent to GoHighLevel!');
+
+        } catch (err) {
+            console.error("GHL Send Error:", err);
+            setGhlStatus(`Error: ${err.message}`);
+        } finally {
+            setIsSendingToGHL(false);
+        }
+    };
+
     const handleDeleteClient = async () => {
-        if (!selectedClient || processingRef.current) return;
-        if (window.confirm(`Are you sure you want to permanently delete all data for ${selectedClient}? This action cannot be undone.`)) {
+        if (!selectedClientEmail || processingRef.current) return;
+        if (window.confirm(`Are you sure you want to permanently delete all data for ${selectedClientEmail}? This action cannot be undone.`)) {
             processingRef.current = true;
             setIsLoading(true);
-            setLoadingMessage(`Deleting ${selectedClient}...`);
+            setLoadingMessage(`Deleting ${selectedClientEmail}...`);
             setError(null);
             try {
                 const spreadsheet = await gapiClient.sheets.spreadsheets.get({ spreadsheetId });
-                const sheet = spreadsheet.result.sheets.find(s => s.properties.title === selectedClient);
+                const sheet = spreadsheet.result.sheets.find(s => s.properties.title === selectedClientEmail);
                 if (sheet) {
                     const sheetId = sheet.properties.sheetId;
                     await gapiClient.sheets.spreadsheets.batchUpdate({
@@ -518,8 +514,8 @@ export default function App() {
                     });
                 }
                 setActiveClientData(null);
-                setSelectedClient(null);
-                setNewClientName('');
+                setSelectedClientEmail(null);
+                setNewClientEmail('');
                 await loadClientList();
             } catch (err) {
                  console.error("Error deleting client:", err);
@@ -562,7 +558,7 @@ export default function App() {
              return (
                 <div className="text-center p-10 bg-gray-50 rounded-lg h-full flex flex-col justify-center items-center">
                     <Users className="mx-auto h-16 w-16 text-gray-400" />
-                    <h3 className="mt-4 text-lg font-medium text-gray-900">{selectedClient ? `Loading...` : "Select a Client"}</h3>
+                    <h3 className="mt-4 text-lg font-medium text-gray-900">{selectedClientEmail ? `Loading...` : "Select a Client"}</h3>
                     <p className="mt-1 text-sm text-gray-500">Choose a client from the list to view their results.</p>
                 </div>
             );
@@ -575,7 +571,7 @@ export default function App() {
         return (
              <div className="p-4 sm:p-6">
                 <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
-                    <h2 className="text-2xl font-bold text-gray-800">Results for: <span className="text-blue-600">{selectedClient}</span></h2>
+                    <h2 className="text-2xl font-bold text-gray-800">Results for: <span className="text-blue-600">{selectedClientEmail}</span></h2>
                     <div className="flex gap-2 flex-wrap">
                         <div className="relative">
                             <button 
@@ -617,21 +613,8 @@ export default function App() {
                                 return (
                                     <th key={i} scope="col" className="px-1 py-1 whitespace-pre-wrap relative group">
                                         <div className="flex flex-col items-center justify-center">
-                                            <input
-                                                type="text"
-                                                value={date}
-                                                onChange={(e) => handleHeaderChange(i, `${e.target.value}\n${fileName}`)}
-                                                className="w-full p-1 bg-transparent border border-transparent focus:bg-white focus:border-blue-500 rounded-md outline-none text-center font-semibold text-gray-800"
-                                                aria-label="Report Date"
-                                            />
-                                            <input
-                                                type="text"
-                                                value={fileName}
-                                                onChange={(e) => handleHeaderChange(i, `${date}\n${e.target.value}`)}
-                                                className="w-full p-1 bg-transparent border border-transparent focus:bg-white focus:border-blue-500 rounded-md outline-none text-center text-xs text-gray-500 truncate"
-                                                title={fileName}
-                                                aria-label="File Name"
-                                            />
+                                            <input type="text" value={date} onChange={(e) => handleHeaderChange(i, `${e.target.value}\n${fileName}`)} className="w-full p-1 bg-transparent border border-transparent focus:bg-white focus:border-blue-500 rounded-md outline-none text-center font-semibold text-gray-800" aria-label="Report Date" />
+                                            <input type="text" value={fileName} onChange={(e) => handleHeaderChange(i, `${date}\n${e.target.value}`)} className="w-full p-1 bg-transparent border border-transparent focus:bg-white focus:border-blue-500 rounded-md outline-none text-center text-xs text-gray-500 truncate" title={fileName} aria-label="File Name" />
                                         </div>
                                         <button onClick={() => handleDeleteColumn(i)} className="absolute top-1 right-1 p-1 bg-red-100 text-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
                                             <Trash2 size={14} />
@@ -652,12 +635,7 @@ export default function App() {
                                         if (status === 'high') statusClass = 'bg-red-100 text-red-800 font-bold';
                                         return (
                                             <td key={cellIndex} className={`px-1 py-1 ${statusClass}`}>
-                                                <input 
-                                                    type="text" 
-                                                    value={cell} 
-                                                    onChange={(e) => handleCellChange(rowIndex + 1, cellIndex, e.target.value)}
-                                                    className="w-full p-2 bg-transparent border border-transparent focus:bg-white focus:border-blue-500 rounded-md outline-none text-center"
-                                                />
+                                                <input type="text" value={cell} onChange={(e) => handleCellChange(rowIndex + 1, cellIndex, e.target.value)} className="w-full p-2 bg-transparent border border-transparent focus:bg-white focus:border-blue-500 rounded-md outline-none text-center" />
                                             </td>
                                         );
                                     })}
@@ -716,7 +694,7 @@ export default function App() {
                         <h2 className="text-lg font-semibold text-gray-700 mb-3">Add New Report</h2>
                         <div className="relative mb-3">
                             <UserPlus className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                            <input type="text" value={newClientName} onChange={(e) => setNewClientName(e.target.value)} placeholder="Enter Client Name" className="w-full pl-10 pr-4 py-2 border rounded-md"/>
+                            <input type="email" value={newClientEmail} onChange={(e) => setNewClientEmail(e.target.value)} placeholder="Enter Client Email" className="w-full pl-10 pr-4 py-2 border rounded-md"/>
                         </div>
                         <div {...getRootProps()} className={`w-full p-6 border-2 border-dashed rounded-lg text-center cursor-pointer ${isDragActive ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-400'}`}>
                             <input {...getInputProps()} />
@@ -730,17 +708,17 @@ export default function App() {
                          <h2 className="text-lg font-semibold text-gray-700 mb-3">Clients</h2>
                          <div className="relative mb-3">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search clients..." className="w-full pl-10 pr-4 py-2 border rounded-md"/>
+                            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search by email..." className="w-full pl-10 pr-4 py-2 border rounded-md"/>
                         </div>
                         <div className="flex-grow overflow-y-auto">
                             {filteredClients.length > 0 ? (
                                 <ul className="space-y-1">
-                                    {filteredClients.map(name => (
-                                        <li key={name} className="flex items-center justify-between group">
-                                            <button onClick={() => handleClientSelection(name)} className={`w-full text-left px-3 py-2 rounded-md transition-colors duration-150 ${selectedClient === name ? 'bg-blue-600 text-white font-semibold' : 'hover:bg-gray-100'}`}>
-                                                {name}
+                                    {filteredClients.map(email => (
+                                        <li key={email} className="flex items-center justify-between group">
+                                            <button onClick={() => handleClientSelection(email)} className={`w-full text-left px-3 py-2 rounded-md transition-colors duration-150 ${selectedClientEmail === email ? 'bg-blue-600 text-white font-semibold' : 'hover:bg-gray-100'}`}>
+                                                {email}
                                             </button>
-                                            {selectedClient === name && (
+                                            {selectedClientEmail === email && (
                                                 <button onClick={handleDeleteClient} className="p-2 text-red-500 hover:bg-red-100 rounded-md opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <Trash2 size={16} />
                                                 </button>
@@ -777,6 +755,17 @@ export default function App() {
                             ) : (
                                 <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: analysisResult.replace(/\n/g, '<br />') }}></div>
                             )}
+                        </div>
+                        <div className="p-4 bg-gray-50 border-t flex justify-end items-center gap-4">
+                            {ghlStatus && <p className="text-sm text-gray-600">{ghlStatus}</p>}
+                            <button 
+                                onClick={handleSendToGHL} 
+                                disabled={isAnalyzing || isSendingToGHL}
+                                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-all disabled:bg-blue-300 disabled:cursor-not-allowed"
+                            >
+                                {isSendingToGHL ? <Loader className="animate-spin" size={20}/> : <Send size={20} />}
+                                {isSendingToGHL ? 'Sending...' : 'Send to GoHighLevel'}
+                            </button>
                         </div>
                     </div>
                 </div>
