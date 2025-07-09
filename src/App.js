@@ -523,7 +523,7 @@ export default function App() {
         return 'normal';
     };
 
-    const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, noClick: false });
+    const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, noClick: false, multiple: false });
 
     const filteredClients = useMemo(() => clientList.filter(name => name.toLowerCase().includes(searchQuery.toLowerCase())).sort(), [clientList, searchQuery]);
     
