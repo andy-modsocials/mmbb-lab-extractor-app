@@ -501,9 +501,16 @@ export default function App() {
     };
     
     const findValue = (extractedData, markerName) => {
+        const markerNameToMatch = markerName.toLowerCase();
         for (const category in extractedData) {
             if (Array.isArray(extractedData[category])) {
-                const found = extractedData[category].find(item => item.marker === markerName || item.marker.includes(markerName));
+                const found = extractedData[category].find(item => {
+                    if (!item.marker) return false;
+                    const itemMarker = item.marker.toLowerCase();
+                    // Example: "Estradiol (E2)" contains "estradiol"
+                    // Example: "Testosterone, Total" contains "testosterone"
+                    return itemMarker.includes(markerNameToMatch) || markerNameToMatch.includes(itemMarker);
+                });
                 if (found) return `${found.value} ${found.units || ''}`.trim();
             }
         }
