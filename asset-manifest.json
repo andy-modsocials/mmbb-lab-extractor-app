@@ -1,12 +1,12 @@
 {
   "files": {
     "main.css": "/mmbb-lab-extractor-app/static/css/main.31d6cfe0.css",
-    "main.js": "/mmbb-lab-extractor-app/static/js/main.5133708c.js",
+    "main.js": "/mmbb-lab-extractor-app/static/js/main.4e8f1f70.js",
     "index.html": "/mmbb-lab-extractor-app/index.html",
-    "main.5133708c.js.map": "/mmbb-lab-extractor-app/static/js/main.5133708c.js.map"
+    "main.4e8f1f70.js.map": "/mmbb-lab-extractor-app/static/js/main.4e8f1f70.js.map"
   },
   "entrypoints": [
     "static/css/main.31d6cfe0.css",
-    "static/js/main.5133708c.js"
+    "static/js/main.4e8f1f70.js"
   ]
 }
