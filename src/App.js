@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Loader, UploadCloud, Copy, Check, XCircle, Trash2, UserPlus, Search, Users, LogIn, LogOut, Save, PlusCircle } from 'lucide-react';
+import { Loader, UploadCloud, Copy, Check, XCircle, Trash2, UserPlus, Search, Users, LogIn, LogOut, Save, PlusCircle, BrainCircuit } from 'lucide-react';
 
 // --- Google API Configuration ---
 // IMPORTANT: Replace these with your own keys from Google Cloud Console.
@@ -42,6 +42,10 @@ export default function App() {
     const [isLoading, setIsLoading] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState('');
     const [error, setError] = useState(null);
+
+    const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
+    const [analysisResult, setAnalysisResult] = useState('');
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
 
     // --- Google API Initialization ---
     useEffect(() => {
@@ -355,13 +359,67 @@ export default function App() {
 
     const handleHeaderChange = (colIndex, value) => {
         const updatedData = activeClientData.map((row, rIdx) => {
-            if (rIdx === 0) { // Target the header row
+            if (rIdx === 0) {
                 return row.map((cell, cIdx) => (cIdx === colIndex ? value : cell));
             }
             return row;
         });
         setActiveClientData(updatedData);
         setIsDirty(true);
+    };
+
+    const handleAnalyzeLabs = async () => {
+        if (!activeClientData || activeClientData.length < 2) return;
+        
+        setIsAnalyzing(true);
+        setAnalysisResult('');
+        setIsAnalysisModalOpen(true);
+        setError(null);
+
+        try {
+            const headers = activeClientData[0];
+            const lastColIndex = headers.length - 1;
+            
+            let labDataString = "Here are the latest lab results:\n";
+            for (let i = 1; i < activeClientData.length; i++) {
+                const row = activeClientData[i];
+                const marker = row[0];
+                const refRange = row[1];
+                const value = row[lastColIndex];
+                if (marker && value && value !== '—') {
+                    labDataString += `- ${marker}: ${value} (Reference: ${refRange})\n`;
+                }
+            }
+
+            const prompt = `
+                You are a helpful assistant providing a general analysis of lab results for fertility health.
+                Analyze the following lab results and provide a brief, educational summary.
+                Focus on key fertility markers like FSH, LH, Estradiol, AMH, TSH, and Prolactin.
+                Explain what each key marker generally indicates in the context of fertility.
+                Do not provide any medical advice, diagnosis, or treatment recommendations.
+
+                Here is the data:
+                ${labDataString}
+            `;
+
+            const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
+            const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
+
+            const geminiResponse = await fetch(geminiApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            if (!geminiResponse.ok) throw new Error(`Gemini API request failed. Status: ${geminiResponse.status}`);
+            
+            const result = await geminiResponse.json();
+            if (!result.candidates?.[0]?.content?.parts?.[0]) throw new Error("The AI could not generate an analysis.");
+            
+            setAnalysisResult(result.candidates[0].content.parts[0].text);
+
+        } catch (err) {
+            console.error("Analysis Error:", err);
+            setError(err.message || "An unexpected error occurred during analysis.");
+            setAnalysisResult("Sorry, an error occurred while generating the analysis. Please try again.");
+        } finally {
+            setIsAnalyzing(false);
+        }
     };
     
     const findValue = (extractedData, markerName) => {
@@ -407,7 +465,10 @@ export default function App() {
              <div className="p-4 sm:p-6">
                 <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
                     <h2 className="text-2xl font-bold text-gray-800">Results for: <span className="text-blue-600">{selectedClient}</span></h2>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap">
+                        <button onClick={handleAnalyzeLabs} className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-all">
+                            <BrainCircuit size={20} /> Analyze Labs for Fertility
+                        </button>
                         <button onClick={handleAddManualColumn} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-all">
                             <PlusCircle size={20} /> Add Manual Column
                         </button>
@@ -563,6 +624,29 @@ export default function App() {
                     ) : renderResultsTable()}
                 </main>
             </div>
+
+            {isAnalysisModalOpen && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col">
+                        <div className="p-4 border-b flex justify-between items-center">
+                            <h2 className="text-xl font-bold text-gray-800">Fertility Health Analysis</h2>
+                            <button onClick={() => setIsAnalysisModalOpen(false)} className="p-1 rounded-full hover:bg-gray-200">
+                                <XCircle size={24} className="text-gray-600" />
+                            </button>
+                        </div>
+                        <div className="p-6 overflow-y-auto">
+                            {isAnalyzing ? (
+                                <div className="flex flex-col items-center justify-center py-12">
+                                    <Loader className="animate-spin h-10 w-10 text-purple-600" />
+                                    <p className="mt-4 text-lg font-semibold text-gray-700">Generating analysis...</p>
+                                </div>
+                            ) : (
+                                <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: analysisResult.replace(/\n/g, '<br />') }}></div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
