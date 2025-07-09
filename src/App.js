@@ -269,7 +269,6 @@ export default function App() {
             for (let i = 1; i < updatedData.length; i++) {
                 const marker = updatedData[i][0];
                 const extractedValue = findValue(extractedData, marker);
-                // Ensure row is long enough before pushing
                 while (updatedData[i].length < updatedData[0].length -1) {
                     updatedData[i].push('—');
                 }
@@ -298,16 +297,31 @@ export default function App() {
 
         const newData = activeClientData.map((row, index) => {
             if (index === 0) {
-                return [...row, date]; // Add header
+                return [...row, date];
             }
-            return [...row, '—']; // Add placeholder value
+            return [...row, '—'];
         });
         setActiveClientData(newData);
         setIsDirty(true);
     };
+
+    const handleDeleteColumn = (colIndex) => {
+        if (!activeClientData || colIndex < 2) return; // Can't delete Marker or Ref Range
+        if (window.confirm("Are you sure you want to delete this entire column? This action will be saved immediately.")) {
+            const newData = activeClientData.map(row => {
+                const newRow = [...row];
+                newRow.splice(colIndex, 1);
+                return newRow;
+            });
+            setActiveClientData(newData);
+            // This is a destructive action, so we save it immediately.
+            handleSaveManualChanges(newData);
+        }
+    };
     
-    const handleSaveManualChanges = async () => {
-        if (!selectedClient || !activeClientData) return;
+    const handleSaveManualChanges = async (dataToSave) => {
+        const data = dataToSave || activeClientData;
+        if (!selectedClient || !data) return;
         setIsLoading(true);
         setLoadingMessage('Saving changes to Google Sheets...');
         setError(null);
@@ -316,7 +330,7 @@ export default function App() {
                 spreadsheetId,
                 range: `'${selectedClient}'!A1`,
                 valueInputOption: 'USER_ENTERED',
-                resource: { values: activeClientData },
+                resource: { values: data },
             });
             setIsDirty(false);
         } catch (err) {
@@ -385,7 +399,7 @@ export default function App() {
                             <PlusCircle size={20} /> Add Manual Column
                         </button>
                         {isDirty && (
-                            <button onClick={handleSaveManualChanges} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-all animate-pulse">
+                            <button onClick={() => handleSaveManualChanges()} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-all animate-pulse">
                                 <Save size={20} /> Save Changes
                             </button>
                         )}
@@ -394,7 +408,16 @@ export default function App() {
                 <div className="overflow-x-auto bg-white rounded-xl shadow-md border border-gray-200">
                     <table className="w-full text-sm text-left text-gray-600">
                         <thead className="text-xs text-gray-700 uppercase bg-gray-100">
-                            <tr>{headers.map((h, i) => <th key={i} scope="col" className="px-6 py-3 whitespace-pre-wrap">{h}</th>)}</tr>
+                            <tr>{headers.map((h, i) => (
+                                <th key={i} scope="col" className="px-6 py-3 whitespace-pre-wrap relative group">
+                                    {h}
+                                    {i > 1 && ( // Only show delete for data columns
+                                        <button onClick={() => handleDeleteColumn(i)} className="absolute top-1 right-1 p-1 bg-red-100 text-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <Trash2 size={14} />
+                                        </button>
+                                    )}
+                                </th>
+                            ))}</tr>
                         </thead>
                         <tbody>
                             {rows.map((row, rowIndex) => (
