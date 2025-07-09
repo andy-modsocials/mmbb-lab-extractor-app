@@ -239,10 +239,21 @@ export default function App() {
             const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
 
             const geminiResponse = await fetch(geminiApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-            if (!geminiResponse.ok) throw new Error(`Gemini API request failed. Status: ${geminiResponse.status}`);
             
             const result = await geminiResponse.json();
-            if (!result.candidates?.[0]?.content?.parts?.[0]) throw new Error("AI could not extract data from the document.");
+            console.log("Raw Gemini Response:", JSON.stringify(result, null, 2)); // Enhanced logging
+
+            if (!geminiResponse.ok) {
+                throw new Error(`Gemini API request failed. Status: ${geminiResponse.status}. Response: ${JSON.stringify(result)}`);
+            }
+            
+            if (result.promptFeedback && result.promptFeedback.blockReason) {
+                 throw new Error(`Request was blocked by the API. Reason: ${result.promptFeedback.blockReason}`);
+            }
+
+            if (!result.candidates?.[0]?.content?.parts?.[0]) {
+                throw new Error("AI could not extract data. The response was empty. Please check the image quality and API key restrictions.");
+            }
 
             let text = result.candidates[0].content.parts[0].text.replace(/```json/g, '').replace(/```/g, '').trim();
             const parsedJson = JSON.parse(text);
@@ -501,15 +512,13 @@ export default function App() {
     };
     
     const findValue = (extractedData, markerName) => {
-        const markerNameToMatch = markerName.toLowerCase();
+        const markerNameToMatch = markerName.toLowerCase().replace(/ \(.+\)/, ''); // "Estradiol (E2)" -> "estradiol"
         for (const category in extractedData) {
             if (Array.isArray(extractedData[category])) {
                 const found = extractedData[category].find(item => {
                     if (!item.marker) return false;
                     const itemMarker = item.marker.toLowerCase();
-                    // Example: "Estradiol (E2)" contains "estradiol"
-                    // Example: "Testosterone, Total" contains "testosterone"
-                    return itemMarker.includes(markerNameToMatch) || markerNameToMatch.includes(itemMarker);
+                    return itemMarker.includes(markerNameToMatch);
                 });
                 if (found) return `${found.value} ${found.units || ''}`.trim();
             }
