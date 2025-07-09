@@ -224,7 +224,7 @@ export default function App() {
         try {
             setLoadingMessage('Processing file...');
             const base64Data = await toBase64(file);
-            const fileParts = [{ inlineData: { mimeType: file.type, data: base64Data } }];
+            const filePart = { inlineData: { mimeType: file.type, data: base64Data } };
 
             setLoadingMessage('Analyzing document with AI...');
             const prompt = `
@@ -232,11 +232,10 @@ export default function App() {
                 Extract the report date (collection date) and any of the lab values from the requested list below.
                 CRITICAL INSTRUCTION: Only extract the markers explicitly listed. If a marker like 'Cortisol' is present but not in the requested list, you MUST ignore it completely.
                 Be flexible with names; for example, "TESTOSTERONE, TOTAL, MS" should be "Testosterone". 
-                Pay close attention to layouts where the marker, units, and value might be on separate lines. For example, if you see "ESTRADIOL" on one line, "pg/mL" on the line below, and the value "65" to the right, you must correctly associate these as a single Estradiol result.
                 Return a single JSON object with a top-level key "reportDate" and other keys for categories.
                 Requested Markers: Hormones, Thyroid Panel, Vitamins & Nutrients, Glucose / Insulin / Metabolic, CBC Panel, Electrolytes / Other.
             `;
-            const payload = { contents: [{ role: "user", parts: [{ text: prompt }, ...fileParts] }] };
+            const payload = { contents: [{ role: "user", parts: [{ text: prompt }, filePart] }] };
             const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
 
             const geminiResponse = await fetch(geminiApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
