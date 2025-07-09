@@ -2,7 +2,6 @@ import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Loader, UploadCloud, Copy, Check, XCircle, Trash2, UserPlus, Search, Users, LogIn, LogOut } from 'lucide-react';
 
-
 // --- Google API Configuration ---
 // IMPORTANT: Replace these with your own keys from Google Cloud Console.
 const API_KEY = "AIzaSyAQwhvrHr2mFXFqXSkwRjEmsLUPRqf4j0Q"; // Your Google Cloud API Key
@@ -121,6 +120,7 @@ export default function App() {
     const handleClientSelection = async (clientName) => {
         if (!gapiClient || !accessToken) return;
         setSelectedClient(clientName);
+        setNewClientName(clientName); // Auto-populate the input field
         setActiveClientData(null);
         setIsLoading(true);
         setLoadingMessage(`Loading data for ${clientName}...`);
