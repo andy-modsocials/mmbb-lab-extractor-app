@@ -237,7 +237,7 @@ export default function App() {
                 Requested Markers: Hormones, Thyroid Panel, Vitamins & Nutrients, Glucose / Insulin / Metabolic, CBC Panel, Electrolytes / Other.
             `;
             const payload = { contents: [{ role: "user", parts: [{ text: prompt }, filePart] }] };
-            const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
+            const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${API_KEY}`;
 
             const geminiResponse = await fetch(geminiApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
             
@@ -441,7 +441,7 @@ export default function App() {
             `;
 
             const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
-            const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
+            const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${API_KEY}`;
 
             const geminiResponse = await fetch(geminiApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
             if (!geminiResponse.ok) throw new Error(`Gemini API request failed. Status: ${geminiResponse.status}`);
@@ -524,7 +524,6 @@ export default function App() {
         const markerToMatch = markerNameInTable.toLowerCase().replace(/ \(.+\)/, '');
         for (const category in extractedData) {
             const categoryData = extractedData[category];
-            // Handle both array of objects and object of objects
             if (Array.isArray(categoryData)) {
                 const found = categoryData.find(item => {
                     if (!item.marker) return false;
