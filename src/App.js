@@ -202,9 +202,9 @@ export default function App() {
             const base64Data = await toBase64(file);
             const prompt = `
                 You are an expert lab value extraction tool. Analyze the provided document.
-                Extract any of the following lab values. Be flexible with the names; for example, if you see "TESTOSTERONE, TOTAL, MS", extract it as "Testosterone". If you see "Estradiol", extract it as "Estradiol (E2)".
-                Return a single JSON object where keys are categories, and values are arrays of objects with "marker", "value", and "units".
-                If a marker is not found, do not include it.
+                Extract the report date (collection date) and any of the following lab values. Be flexible with the names; for example, if you see "TESTOSTERONE, TOTAL, MS", extract it as "Testosterone".
+                Return a single JSON object. The JSON should have a top-level key "reportDate" with the extracted date string. The other keys should be categories, with values being arrays of objects with "marker", "value", and "units".
+                If a marker or date is not found, do not include it.
 
                 Requested Markers and their common aliases:
                 - Hormones: LH, FSH, Estradiol (E2, Estradiol), Progesterone, Prolactin, Testosterone (Testosterone Total, Testosterone Free), DHEA-S, AMH
@@ -250,8 +250,9 @@ export default function App() {
             const response = await gapiClient.sheets.spreadsheets.values.get({ spreadsheetId, range: `'${clientName}'!A:Z` });
             existingData = response.result.values || [];
         }
-
-        const newColumnHeader = `${new Date().toLocaleDateString()}\n${fileName}`;
+        
+        const reportDate = extractedData.reportDate || new Date().toLocaleDateString();
+        const newColumnHeader = `${reportDate}\n${fileName}`;
         let updatedData = [];
 
         if (existingData.length === 0) {
@@ -306,7 +307,7 @@ export default function App() {
     };
 
     const handleDeleteColumn = (colIndex) => {
-        if (!activeClientData || colIndex < 2) return; // Can't delete Marker or Ref Range
+        if (!activeClientData || colIndex < 2) return;
         if (window.confirm("Are you sure you want to delete this entire column? This action will be saved immediately.")) {
             const newData = activeClientData.map(row => {
                 const newRow = [...row];
@@ -314,7 +315,6 @@ export default function App() {
                 return newRow;
             });
             setActiveClientData(newData);
-            // This is a destructive action, so we save it immediately.
             handleSaveManualChanges(newData);
         }
     };
@@ -352,11 +352,24 @@ export default function App() {
         setActiveClientData(updatedData);
         setIsDirty(true);
     };
+
+    const handleHeaderChange = (colIndex, value) => {
+        const updatedData = activeClientData.map((row, rIdx) => {
+            if (rIdx === 0) { // Target the header row
+                return row.map((cell, cIdx) => (cIdx === colIndex ? value : cell));
+            }
+            return row;
+        });
+        setActiveClientData(updatedData);
+        setIsDirty(true);
+    };
     
     const findValue = (extractedData, markerName) => {
         for (const category in extractedData) {
-            const found = extractedData[category].find(item => item.marker === markerName || item.marker.includes(markerName));
-            if (found) return `${found.value} ${found.units || ''}`.trim();
+            if (Array.isArray(extractedData[category])) {
+                const found = extractedData[category].find(item => item.marker === markerName || item.marker.includes(markerName));
+                if (found) return `${found.value} ${found.units || ''}`.trim();
+            }
         }
         return '—';
     };
@@ -409,9 +422,16 @@ export default function App() {
                     <table className="w-full text-sm text-left text-gray-600">
                         <thead className="text-xs text-gray-700 uppercase bg-gray-100">
                             <tr>{headers.map((h, i) => (
-                                <th key={i} scope="col" className="px-6 py-3 whitespace-pre-wrap relative group">
-                                    {h}
-                                    {i > 1 && ( // Only show delete for data columns
+                                <th key={i} scope="col" className="px-1 py-1 whitespace-pre-wrap relative group">
+                                    {i < 2 ? <div className="px-5 py-2">{h}</div> : (
+                                        <textarea 
+                                            value={h}
+                                            onChange={(e) => handleHeaderChange(i, e.target.value)}
+                                            className="w-full p-2 bg-transparent border border-transparent focus:bg-white focus:border-blue-500 rounded-md outline-none text-center font-bold"
+                                            rows={2}
+                                        />
+                                    )}
+                                    {i > 1 && (
                                         <button onClick={() => handleDeleteColumn(i)} className="absolute top-1 right-1 p-1 bg-red-100 text-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
                                             <Trash2 size={14} />
                                         </button>
