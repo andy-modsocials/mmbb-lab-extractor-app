@@ -1,6 +1,6 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Loader, UploadCloud, Copy, Check, XCircle, Trash2, UserPlus, Search, Users, LogIn, LogOut, Save, PlusCircle, BrainCircuit } from 'lucide-react';
+import { Loader, UploadCloud, Copy, Check, XCircle, Trash2, UserPlus, Search, Users, LogIn, LogOut, Save, PlusCircle, BrainCircuit, ChevronDown } from 'lucide-react';
 
 // --- Google API Configuration ---
 // IMPORTANT: Replace these with your own keys from Google Cloud Console.
@@ -46,7 +46,9 @@ export default function App() {
     const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
     const [analysisResult, setAnalysisResult] = useState('');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
-    const [isProcessing, setIsProcessing] = useState(false); // Bug fix lock
+    const [isAnalysisDropdownOpen, setIsAnalysisDropdownOpen] = useState(false);
+    
+    const processingRef = useRef(false);
 
     // --- Google API Initialization ---
     useEffect(() => {
@@ -124,6 +126,10 @@ export default function App() {
     };
 
     const handleClientSelection = async (clientName) => {
+        if (processingRef.current) {
+            alert("Please wait for the current operation to complete.");
+            return;
+        }
         if (isDirty) {
             if (!window.confirm("You have unsaved changes. Are you sure you want to switch clients? Your changes will be lost.")) {
                 return;
@@ -192,7 +198,7 @@ export default function App() {
     };
     
     const onDrop = useCallback(async (acceptedFiles) => {
-        if (isProcessing) return;
+        if (processingRef.current) return;
 
         const file = acceptedFiles[0];
         if (!file || !spreadsheetId) return;
@@ -201,7 +207,7 @@ export default function App() {
             return;
         }
 
-        setIsProcessing(true);
+        processingRef.current = true;
         setIsLoading(true);
         setLoadingMessage('Analyzing document with AI...');
         setError(null);
@@ -247,9 +253,9 @@ export default function App() {
         } finally {
             setIsLoading(false);
             setLoadingMessage('');
-            setIsProcessing(false);
+            processingRef.current = false;
         }
-    }, [newClientName, spreadsheetId, gapiClient, clientList, accessToken, isProcessing]);
+    }, [newClientName, spreadsheetId, gapiClient, clientList, accessToken]);
 
     const writeToSheet = async (clientName, fileName, extractedData) => {
         const sheetExists = clientList.includes(clientName);
@@ -302,7 +308,7 @@ export default function App() {
     };
     
     const handleAddManualColumn = () => {
-        if (isProcessing) return;
+        if (processingRef.current) return;
         const date = prompt("Enter a date or note for the new column (e.g., 'Manual Entry 7/9/2025'):");
         if (!date || !activeClientData) return;
 
@@ -317,7 +323,7 @@ export default function App() {
     };
 
     const handleDeleteColumn = async (colIndex) => {
-        if (isProcessing) return;
+        if (processingRef.current) return;
         if (!activeClientData || colIndex < 2) return;
         if (window.confirm("Are you sure you want to delete this entire column? This action will be saved immediately.")) {
             const newData = activeClientData.map(row => {
@@ -331,15 +337,21 @@ export default function App() {
     };
     
     const handleSaveManualChanges = async (dataToSave) => {
-        if (isProcessing) return;
+        if (processingRef.current) return;
         const data = dataToSave || activeClientData;
         if (!selectedClient || !data) return;
         
-        setIsProcessing(true);
+        processingRef.current = true;
         setIsLoading(true);
         setLoadingMessage('Saving changes to Google Sheets...');
         setError(null);
         try {
+            // BUG FIX: Clear the sheet before updating to ensure columns are truly deleted.
+            await gapiClient.sheets.spreadsheets.values.clear({
+                spreadsheetId,
+                range: `'${selectedClient}'`,
+            });
+
             await gapiClient.sheets.spreadsheets.values.update({
                 spreadsheetId,
                 range: `'${selectedClient}'!A1`,
@@ -353,7 +365,7 @@ export default function App() {
         } finally {
             setIsLoading(false);
             setLoadingMessage('');
-            setIsProcessing(false);
+            processingRef.current = false;
         }
     };
 
@@ -379,13 +391,14 @@ export default function App() {
         setIsDirty(true);
     };
 
-    const handleAnalyzeLabs = async () => {
-        if (!activeClientData || activeClientData.length < 2 || isProcessing) return;
+    const handleAnalyzeLabs = async (analysisType) => {
+        if (!activeClientData || activeClientData.length < 2 || processingRef.current) return;
         
         setIsAnalyzing(true);
         setAnalysisResult('');
         setIsAnalysisModalOpen(true);
         setError(null);
+        setIsAnalysisDropdownOpen(false);
 
         try {
             const headers = activeClientData[0];
@@ -401,11 +414,25 @@ export default function App() {
                     labDataString += `- ${marker}: ${value} (Reference: ${refRange})\n`;
                 }
             }
+            
+            let analysisFocus = '';
+            switch (analysisType) {
+                case 'Fertility':
+                    analysisFocus = 'Focus on key fertility markers like FSH, LH, Estradiol, AMH, TSH, and Prolactin. Explain what each key marker generally indicates in the context of fertility.';
+                    break;
+                case 'Thyroid':
+                    analysisFocus = 'Focus on key thyroid markers like TSH, Free T3, Free T4, Total T3, and Total T4. Explain what each marker generally indicates for thyroid health.';
+                    break;
+                case 'Metabolic':
+                    analysisFocus = 'Focus on key metabolic markers like Fasting Glucose, Fasting Insulin, HbA1c, and the lipid panel (Cholesterol, HDL, LDL, Triglycerides). Explain what each marker generally indicates for metabolic health.';
+                    break;
+                default:
+                    analysisFocus = 'Provide a general overview of the lab results.';
+            }
 
             const prompt = `
-                You are a helpful assistant providing a concise analysis of lab results for fertility health.
-                Analyze the following lab results and provide a brief, bullet-pointed summary.
-                Focus on the most important takeaways for key fertility markers like FSH, LH, Estradiol, AMH, TSH, and Prolactin.
+                You are a helpful assistant providing a concise, bullet-pointed analysis of lab results.
+                Analyze the following lab results. ${analysisFocus}
                 Do not provide any medical advice, diagnosis, or treatment recommendations.
 
                 Here is the data:
@@ -429,6 +456,38 @@ export default function App() {
             setAnalysisResult("Sorry, an error occurred while generating the analysis. Please try again.");
         } finally {
             setIsAnalyzing(false);
+        }
+    };
+    
+    const handleDeleteClient = async () => {
+        if (!selectedClient || processingRef.current) return;
+        if (window.confirm(`Are you sure you want to permanently delete all data for ${selectedClient}? This action cannot be undone.`)) {
+            processingRef.current = true;
+            setIsLoading(true);
+            setLoadingMessage(`Deleting ${selectedClient}...`);
+            setError(null);
+            try {
+                const spreadsheet = await gapiClient.sheets.spreadsheets.get({ spreadsheetId });
+                const sheet = spreadsheet.result.sheets.find(s => s.properties.title === selectedClient);
+                if (sheet) {
+                    const sheetId = sheet.properties.sheetId;
+                    await gapiClient.sheets.spreadsheets.batchUpdate({
+                        spreadsheetId,
+                        resource: { requests: [{ deleteSheet: { sheetId } }] }
+                    });
+                }
+                setActiveClientData(null);
+                setSelectedClient(null);
+                setNewClientName('');
+                await loadClientList();
+            } catch (err) {
+                 console.error("Error deleting client:", err);
+                 setError("Failed to delete client. Please try again.");
+            } finally {
+                setIsLoading(false);
+                setLoadingMessage('');
+                processingRef.current = false;
+            }
         }
     };
     
@@ -476,9 +535,18 @@ export default function App() {
                 <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
                     <h2 className="text-2xl font-bold text-gray-800">Results for: <span className="text-blue-600">{selectedClient}</span></h2>
                     <div className="flex gap-2 flex-wrap">
-                        <button onClick={handleAnalyzeLabs} className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-all">
-                            <BrainCircuit size={20} /> Analyze Labs for Fertility
-                        </button>
+                        <div className="relative">
+                            <button onClick={() => setIsAnalysisDropdownOpen(!isAnalysisDropdownOpen)} className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-all">
+                                <BrainCircuit size={20} /> Analyze Labs <ChevronDown size={20} />
+                            </button>
+                            {isAnalysisDropdownOpen && (
+                                <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10 border">
+                                    <button onClick={() => handleAnalyzeLabs('Fertility')} className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Fertility Health</button>
+                                    <button onClick={() => handleAnalyzeLabs('Thyroid')} className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Thyroid Health</button>
+                                    <button onClick={() => handleAnalyzeLabs('Metabolic')} className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Metabolic Health</button>
+                                </div>
+                            )}
+                        </div>
                         <button onClick={handleAddManualColumn} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-all">
                             <PlusCircle size={20} /> Add Manual Column
                         </button>
@@ -621,7 +689,16 @@ export default function App() {
                             {filteredClients.length > 0 ? (
                                 <ul className="space-y-1">
                                     {filteredClients.map(name => (
-                                        <li key={name}><button onClick={() => handleClientSelection(name)} className={`w-full text-left px-3 py-2 rounded-md transition-colors duration-150 ${selectedClient === name ? 'bg-blue-600 text-white font-semibold' : 'hover:bg-gray-100'}`}>{name}</button></li>
+                                        <li key={name} className="flex items-center justify-between group">
+                                            <button onClick={() => handleClientSelection(name)} className={`w-full text-left px-3 py-2 rounded-md transition-colors duration-150 ${selectedClient === name ? 'bg-blue-600 text-white font-semibold' : 'hover:bg-gray-100'}`}>
+                                                {name}
+                                            </button>
+                                            {selectedClient === name && (
+                                                <button onClick={handleDeleteClient} className="p-2 text-red-500 hover:bg-red-100 rounded-md opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            )}
+                                        </li>
                                     ))}
                                 </ul>
                             ) : (<p className="text-sm text-gray-500 text-center py-4">No clients found.</p>)}
@@ -639,7 +716,7 @@ export default function App() {
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col">
                         <div className="p-4 border-b flex justify-between items-center">
-                            <h2 className="text-xl font-bold text-gray-800">Fertility Health Analysis</h2>
+                            <h2 className="text-xl font-bold text-gray-800">Lab Analysis</h2>
                             <button onClick={() => setIsAnalysisModalOpen(false)} className="p-1 rounded-full hover:bg-gray-200">
                                 <XCircle size={24} className="text-gray-600" />
                             </button>
