@@ -46,6 +46,7 @@ export default function App() {
     const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
     const [analysisResult, setAnalysisResult] = useState('');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [isProcessing, setIsProcessing] = useState(false); // Bug fix lock
 
     // --- Google API Initialization ---
     useEffect(() => {
@@ -191,6 +192,8 @@ export default function App() {
     };
     
     const onDrop = useCallback(async (acceptedFiles) => {
+        if (isProcessing) return;
+
         const file = acceptedFiles[0];
         if (!file || !spreadsheetId) return;
         if (!newClientName.trim()) {
@@ -198,6 +201,7 @@ export default function App() {
             return;
         }
 
+        setIsProcessing(true);
         setIsLoading(true);
         setLoadingMessage('Analyzing document with AI...');
         setError(null);
@@ -243,8 +247,9 @@ export default function App() {
         } finally {
             setIsLoading(false);
             setLoadingMessage('');
+            setIsProcessing(false);
         }
-    }, [newClientName, spreadsheetId, gapiClient, clientList, accessToken]);
+    }, [newClientName, spreadsheetId, gapiClient, clientList, accessToken, isProcessing]);
 
     const writeToSheet = async (clientName, fileName, extractedData) => {
         const sheetExists = clientList.includes(clientName);
@@ -297,6 +302,7 @@ export default function App() {
     };
     
     const handleAddManualColumn = () => {
+        if (isProcessing) return;
         const date = prompt("Enter a date or note for the new column (e.g., 'Manual Entry 7/9/2025'):");
         if (!date || !activeClientData) return;
 
@@ -310,7 +316,8 @@ export default function App() {
         setIsDirty(true);
     };
 
-    const handleDeleteColumn = (colIndex) => {
+    const handleDeleteColumn = async (colIndex) => {
+        if (isProcessing) return;
         if (!activeClientData || colIndex < 2) return;
         if (window.confirm("Are you sure you want to delete this entire column? This action will be saved immediately.")) {
             const newData = activeClientData.map(row => {
@@ -318,14 +325,17 @@ export default function App() {
                 newRow.splice(colIndex, 1);
                 return newRow;
             });
+            await handleSaveManualChanges(newData);
             setActiveClientData(newData);
-            handleSaveManualChanges(newData);
         }
     };
     
     const handleSaveManualChanges = async (dataToSave) => {
+        if (isProcessing) return;
         const data = dataToSave || activeClientData;
         if (!selectedClient || !data) return;
+        
+        setIsProcessing(true);
         setIsLoading(true);
         setLoadingMessage('Saving changes to Google Sheets...');
         setError(null);
@@ -343,6 +353,7 @@ export default function App() {
         } finally {
             setIsLoading(false);
             setLoadingMessage('');
+            setIsProcessing(false);
         }
     };
 
@@ -369,7 +380,7 @@ export default function App() {
     };
 
     const handleAnalyzeLabs = async () => {
-        if (!activeClientData || activeClientData.length < 2) return;
+        if (!activeClientData || activeClientData.length < 2 || isProcessing) return;
         
         setIsAnalyzing(true);
         setAnalysisResult('');
@@ -392,10 +403,9 @@ export default function App() {
             }
 
             const prompt = `
-                You are a helpful assistant providing a general analysis of lab results for fertility health.
-                Analyze the following lab results and provide a brief, educational summary.
-                Focus on key fertility markers like FSH, LH, Estradiol, AMH, TSH, and Prolactin.
-                Explain what each key marker generally indicates in the context of fertility.
+                You are a helpful assistant providing a concise analysis of lab results for fertility health.
+                Analyze the following lab results and provide a brief, bullet-pointed summary.
+                Focus on the most important takeaways for key fertility markers like FSH, LH, Estradiol, AMH, TSH, and Prolactin.
                 Do not provide any medical advice, diagnosis, or treatment recommendations.
 
                 Here is the data:
