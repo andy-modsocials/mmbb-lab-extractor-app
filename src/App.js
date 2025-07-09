@@ -231,8 +231,9 @@ export default function App() {
                 You are an expert lab value extraction tool. Analyze the provided document image.
                 Extract the report date (collection date) and any of the lab values from the requested list below.
                 CRITICAL INSTRUCTION: Only extract the markers explicitly listed. If a marker like 'Cortisol' is present but not in the requested list, you MUST ignore it completely.
-                Be flexible with names; for example, "TESTOSTERONE, TOTAL, MS" should be "Testosterone".
-                Return a single JSON object with a top-level key "reportDate" and other keys for categories.
+                Be flexible with names; for example, "TESTOSTERONE, TOTAL, MS" should be "Testosterone". 
+                Return a single JSON object with a top-level key "reportDate" and other keys for categories. The value for each category key MUST be an array of objects, where each object has "marker", "value", and "units" keys.
+                Example: {"Hormones": [{"marker": "Testosterone", "value": "13", "units": "ng/dL"}]}
                 Requested Markers: Hormones, Thyroid Panel, Vitamins & Nutrients, Glucose / Insulin / Metabolic, CBC Panel, Electrolytes / Other.
             `;
             const payload = { contents: [{ role: "user", parts: [{ text: prompt }, filePart] }] };
@@ -520,16 +521,22 @@ export default function App() {
     };
     
     const findValue = (extractedData, markerNameInTable) => {
-        const markerToMatch = markerNameInTable.toLowerCase().replace(/ \(.+\)/, ''); // "Estradiol (E2)" -> "estradiol"
+        const markerToMatch = markerNameInTable.toLowerCase().replace(/ \(.+\)/, '');
         for (const category in extractedData) {
             const categoryData = extractedData[category];
+            // Handle both array of objects and object of objects
             if (Array.isArray(categoryData)) {
                 const found = categoryData.find(item => {
                     if (!item.marker) return false;
-                    const itemMarker = item.marker.toLowerCase();
-                    return itemMarker.includes(markerToMatch);
+                    return item.marker.toLowerCase().includes(markerToMatch);
                 });
                 if (found) return `${found.value} ${found.units || ''}`.trim();
+            } else if (typeof categoryData === 'object' && categoryData !== null) {
+                for (const extractedMarker in categoryData) {
+                    if (extractedMarker.toLowerCase().includes(markerToMatch)) {
+                        return categoryData[extractedMarker];
+                    }
+                }
             }
         }
         return '—';
