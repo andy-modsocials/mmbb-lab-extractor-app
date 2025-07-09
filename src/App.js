@@ -66,6 +66,11 @@ export default function App() {
         gisScript.src = 'https://accounts.google.com/gsi/client';
         gisScript.onload = initializeGisClient;
         document.body.appendChild(gisScript);
+
+        // Set workerSrc for pdf.js
+        if (window.pdfjsLib) {
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.102/pdf.worker.min.js`;
+        }
     }, []);
 
     const initializeGapiClient = async () => {
@@ -214,14 +219,39 @@ export default function App() {
 
         processingRef.current = true;
         setIsLoading(true);
-        setLoadingMessage('Analyzing document with AI...');
         setError(null);
 
         try {
-            const base64Data = await toBase64(file);
+            let fileParts = [];
+            
+            if (file.type === 'application/pdf') {
+                setLoadingMessage('Processing PDF...');
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await window.pdfjsLib.getDocument(arrayBuffer).promise;
+                const numPages = pdf.numPages;
+
+                for (let i = 1; i <= numPages; i++) {
+                    setLoadingMessage(`Processing Page ${i} of ${numPages}...`);
+                    const page = await pdf.getPage(i);
+                    const viewport = page.getViewport({ scale: 2.0 });
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+                    await page.render({ canvasContext: context, viewport: viewport }).promise;
+                    const base64Data = canvas.toDataURL('image/jpeg').split(',')[1];
+                    fileParts.push({ inlineData: { mimeType: 'image/jpeg', data: base64Data } });
+                }
+            } else {
+                setLoadingMessage('Processing Image...');
+                const base64Data = await toBase64(file);
+                fileParts.push({ inlineData: { mimeType: file.type, data: base64Data } });
+            }
+
+            setLoadingMessage('Analyzing document with AI...');
             const prompt = `
-                You are an expert lab value extraction tool. Analyze the provided document.
-                Extract the report date (collection date) and any of the lab values from the requested list below.
+                You are an expert lab value extraction tool. Analyze the provided document images. The images represent pages of a single report.
+                Extract the report date (collection date) and any of the lab values from the requested list below. Consolidate results from all pages into a single JSON object.
                 
                 CRITICAL INSTRUCTION: Only extract the markers explicitly listed. If a marker like 'Cortisol' is present but not in the requested list, you MUST ignore it completely and not include it in the output.
                 
@@ -239,7 +269,7 @@ export default function App() {
                 - CBC Panel: Hemoglobin, Hematocrit, WBC, RBC, Platelets, MCV, MCH, MCHC, Neutrophils, Lymphocytes, Monocytes, Eosinophils, Basophils
                 - Electrolytes / Other: Sodium, Potassium, Alkaline Phosphatase
             `;
-            const payload = { contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: file.type, data: base64Data } }] }] };
+            const payload = { contents: [{ role: "user", parts: [{ text: prompt }, ...fileParts] }] };
             const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
 
             const geminiResponse = await fetch(geminiApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
