@@ -346,7 +346,6 @@ export default function App() {
         setLoadingMessage('Saving changes to Google Sheets...');
         setError(null);
         try {
-            // BUG FIX: Clear the sheet before updating to ensure columns are truly deleted.
             await gapiClient.sheets.spreadsheets.values.clear({
                 spreadsheetId,
                 range: `'${selectedClient}'`,
@@ -392,7 +391,7 @@ export default function App() {
     };
 
     const handleAnalyzeLabs = async (analysisType) => {
-        if (!activeClientData || activeClientData.length < 2 || processingRef.current) return;
+        if (!activeClientData || (activeClientData[0] || []).length <= 2 || processingRef.current) return;
         
         setIsAnalyzing(true);
         setAnalysisResult('');
@@ -529,6 +528,7 @@ export default function App() {
         
         const headers = activeClientData[0] || [];
         const rows = activeClientData.slice(1);
+        const hasDataColumns = headers.length > 2;
 
         return (
              <div className="p-4 sm:p-6">
@@ -536,10 +536,15 @@ export default function App() {
                     <h2 className="text-2xl font-bold text-gray-800">Results for: <span className="text-blue-600">{selectedClient}</span></h2>
                     <div className="flex gap-2 flex-wrap">
                         <div className="relative">
-                            <button onClick={() => setIsAnalysisDropdownOpen(!isAnalysisDropdownOpen)} className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-all">
+                            <button 
+                                onClick={() => setIsAnalysisDropdownOpen(!isAnalysisDropdownOpen)} 
+                                className={`flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md transition-all ${!hasDataColumns ? 'cursor-not-allowed bg-purple-300' : 'hover:bg-purple-700'}`}
+                                disabled={!hasDataColumns}
+                                title={!hasDataColumns ? "No data to analyze" : "Analyze lab results"}
+                            >
                                 <BrainCircuit size={20} /> Analyze Labs <ChevronDown size={20} />
                             </button>
-                            {isAnalysisDropdownOpen && (
+                            {isAnalysisDropdownOpen && hasDataColumns && (
                                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10 border">
                                     <button onClick={() => handleAnalyzeLabs('Fertility')} className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Fertility Health</button>
                                     <button onClick={() => handleAnalyzeLabs('Thyroid')} className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Thyroid Health</button>
