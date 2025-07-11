@@ -4,8 +4,8 @@ import { Loader, UploadCloud, Copy, Check, XCircle, Trash2, UserPlus, Search, Us
 
 // --- Google API Configuration ---
 // IMPORTANT: Replace these with your own keys from Google Cloud Console.
-const API_KEY = "YOUR_GOOGLE_API_KEY"; // Your Google Cloud API Key
-const CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID"; // Your Google Cloud OAuth 2.0 Client ID
+const API_KEY = "AIzaSyAQwhvrHr2mFXFqXSkwRjEmsLUPRqf4j0Q"; // Your Google Cloud API Key
+const CLIENT_ID = "386603214898-n68abvt1m8pq64pv9l881nnjj1mldfnb.apps.googleusercontent.com"; // Your Google Cloud OAuth 2.0 Client ID
 const DISCOVERY_DOCS = [
     "https://sheets.googleapis.com/$discovery/rest?version=v4",
     "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"
@@ -15,7 +15,7 @@ const SPREADSHEET_NAME = "LabValueExtractor_Data";
 
 // --- Backend Function Configuration ---
 // IMPORTANT: Replace this with the URL of your deployed Cloud Function.
-const CLOUD_FUNCTION_URL = "YOUR_CLOUD_FUNCTION_URL_HERE";
+const CLOUD_FUNCTION_URL = "https://ghl-lab-processor-386603214898.us-east4.run.app";
 
 // --- Reference Ranges ---
 const REFERENCE_RANGES = {
