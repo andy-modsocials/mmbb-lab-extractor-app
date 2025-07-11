@@ -13,9 +13,9 @@ const DISCOVERY_DOCS = [
 const SCOPES = "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file";
 const SPREADSHEET_NAME = "LabValueExtractor_Data";
 
-// --- GoHighLevel Configuration ---
-// IMPORTANT: Replace this with the webhook URL you get from Make.com.
-const MAKE_WEBHOOK_URL = "https://ghl-lab-processor-386603214898.us-east4.run.app";
+// --- Backend Function Configuration ---
+// IMPORTANT: Replace this with the URL of your deployed Cloud Function.
+const CLOUD_FUNCTION_URL = "https://ghl-lab-processor-386603214898.us-east4.run.app";
 
 // --- Reference Ranges ---
 const REFERENCE_RANGES = {
@@ -224,40 +224,29 @@ export default function App() {
         try {
             setLoadingMessage('Processing file...');
             const base64Data = await toBase64(file);
-            const filePart = { inlineData: { mimeType: file.type, data: base64Data } };
 
             setLoadingMessage('Analyzing document with AI...');
-            const prompt = `
-                You are an expert lab value extraction tool. Analyze the provided document image.
-                Extract the report date (collection date) and any of the lab values from the requested list below.
-                CRITICAL INSTRUCTION: Only extract the markers explicitly listed. If a marker like 'Cortisol' is present but not in the requested list, you MUST ignore it completely.
-                Be flexible with names. For example, if the report says "White Blood Cell Count" or "Total WBC Count", extract it as "WBC". If it says "Red Blood Cell Count", extract it as "RBC". If it says "Free Thyroxine (FT4)", extract it as "Free T4". If it says "Platelet Count", extract it as "Platelets". If it says "Cholesterol", extract it as "Cholesterol Total".
-                Return a single JSON object with a top-level key "reportDate" and other keys for categories. The value for each category key MUST be an array of objects, where each object has "marker", "value", and "units" keys.
-                Example: {"Hormones": [{"marker": "Testosterone", "value": "13", "units": "ng/dL"}]}
-                Requested Markers: Hormones, Thyroid Panel, Vitamins & Nutrients, Glucose / Insulin / Metabolic, CBC Panel, Electrolytes / Other.
-            `;
-            const payload = { contents: [{ role: "user", parts: [{ text: prompt }, filePart] }] };
-            const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${API_KEY}`;
-
-            const geminiResponse = await fetch(geminiApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            const payload = {
+                file_data: base64Data,
+                mime_type: file.type
+            };
             
-            const result = await geminiResponse.json();
-            console.log("Raw Gemini Response:", JSON.stringify(result, null, 2));
+            if (CLOUD_FUNCTION_URL === "YOUR_CLOUD_FUNCTION_URL_HERE") {
+                throw new Error("Cloud Function URL is not configured in the application code.");
+            }
 
-            if (!geminiResponse.ok) {
-                throw new Error(`Gemini API request failed. Status: ${geminiResponse.status}. Response: ${JSON.stringify(result)}`);
+            const response = await fetch(CLOUD_FUNCTION_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || `Request to cloud function failed with status ${response.status}`);
             }
             
-            if (result.promptFeedback && result.promptFeedback.blockReason) {
-                 throw new Error(`Request was blocked by the API. Reason: ${result.promptFeedback.blockReason}`);
-            }
-
-            if (!result.candidates?.[0]?.content?.parts?.[0]) {
-                throw new Error("AI could not extract data. The response was empty. Please check the image quality and API key restrictions.");
-            }
-
-            let text = result.candidates[0].content.parts[0].text.replace(/```json/g, '').replace(/```/g, '').trim();
-            const parsedJson = JSON.parse(text);
+            const parsedJson = await response.json();
 
             setLoadingMessage('Saving data to Google Sheets...');
             await writeToSheet(newClientEmail.trim(), file.name, parsedJson);
@@ -461,24 +450,26 @@ export default function App() {
     };
     
     const handleSendToGHL = async () => {
-        if (!selectedClientEmail || !analysisResult || MAKE_WEBHOOK_URL === "YOUR_MAKE_WEBHOOK_URL_HERE") {
-            setGhlStatus("Error: Make.com Webhook URL is not configured.");
+        if (!selectedClientEmail || !analysisResult || CLOUD_FUNCTION_URL === "YOUR_CLOUD_FUNCTION_URL_HERE") {
+            setGhlStatus("Error: Cloud Function URL is not configured.");
             return;
         }
         setIsSendingToGHL(true);
         setGhlStatus('Sending...');
         try {
-            const response = await fetch(MAKE_WEBHOOK_URL, {
+            const response = await fetch(CLOUD_FUNCTION_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email: selectedClientEmail, note: analysisResult })
             });
 
             if (!response.ok) {
-                throw new Error(`Webhook request failed with status ${response.status}`);
+                const errorData = await response.json();
+                throw new Error(errorData.error || `Request failed with status ${response.status}`);
             }
             
-            setGhlStatus('Successfully sent to GoHighLevel!');
+            const result = await response.json();
+            setGhlStatus(result.message || 'Successfully sent to GoHighLevel!');
 
         } catch (err) {
             console.error("GHL Send Error:", err);
