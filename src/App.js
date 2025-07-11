@@ -15,7 +15,7 @@ const SPREADSHEET_NAME = "LabValueExtractor_Data";
 
 // --- GoHighLevel Configuration ---
 // IMPORTANT: Replace this with the webhook URL you get from Make.com.
-const MAKE_WEBHOOK_URL = "https://hook.us2.make.com/tqphg08ye5enlrwuj1kkjyo9iea5dtej";
+const MAKE_WEBHOOK_URL = "https://ghl-lab-processor-386603214898.us-east4.run.app";
 
 // --- Reference Ranges ---
 const REFERENCE_RANGES = {
@@ -231,7 +231,7 @@ export default function App() {
                 You are an expert lab value extraction tool. Analyze the provided document image.
                 Extract the report date (collection date) and any of the lab values from the requested list below.
                 CRITICAL INSTRUCTION: Only extract the markers explicitly listed. If a marker like 'Cortisol' is present but not in the requested list, you MUST ignore it completely.
-                Be flexible with names; for example, "TESTOSTERONE, TOTAL, MS" should be "Testosterone". 
+                Be flexible with names. For example, if the report says "White Blood Cell Count" or "Total WBC Count", extract it as "WBC". If it says "Red Blood Cell Count", extract it as "RBC". If it says "Free Thyroxine (FT4)", extract it as "Free T4". If it says "Platelet Count", extract it as "Platelets". If it says "Cholesterol", extract it as "Cholesterol Total".
                 Return a single JSON object with a top-level key "reportDate" and other keys for categories. The value for each category key MUST be an array of objects, where each object has "marker", "value", and "units" keys.
                 Example: {"Hormones": [{"marker": "Testosterone", "value": "13", "units": "ng/dL"}]}
                 Requested Markers: Hormones, Thyroid Panel, Vitamins & Nutrients, Glucose / Insulin / Metabolic, CBC Panel, Electrolytes / Other.
