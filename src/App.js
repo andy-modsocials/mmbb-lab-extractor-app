@@ -512,21 +512,11 @@ export default function App() {
     };
     
     const findValue = (extractedData, markerNameInTable) => {
+        // This function now handles the flat JSON structure returned by the cloud function
         const markerToMatch = markerNameInTable.toLowerCase().replace(/ \(.+\)/, '');
-        for (const category in extractedData) {
-            const categoryData = extractedData[category];
-            if (Array.isArray(categoryData)) {
-                const found = categoryData.find(item => {
-                    if (!item.marker) return false;
-                    return item.marker.toLowerCase().includes(markerToMatch);
-                });
-                if (found) return `${found.value} ${found.units || ''}`.trim();
-            } else if (typeof categoryData === 'object' && categoryData !== null) {
-                for (const extractedMarker in categoryData) {
-                    if (extractedMarker.toLowerCase().includes(markerToMatch)) {
-                        return categoryData[extractedMarker];
-                    }
-                }
+        for (const key in extractedData) {
+            if (key.toLowerCase().includes(markerToMatch)) {
+                return extractedData[key];
             }
         }
         return '—';
@@ -611,7 +601,7 @@ export default function App() {
                                             <input type="text" value={fileName} onChange={(e) => handleHeaderChange(i, `${date}\n${e.target.value}`)} className="w-full p-1 bg-transparent border border-transparent focus:bg-white focus:border-blue-500 rounded-md outline-none text-center text-xs text-gray-500 truncate" title={fileName} aria-label="File Name" />
                                         </div>
                                         <button onClick={() => handleDeleteColumn(i)} className="absolute top-1 right-1 p-1 bg-red-100 text-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <Trash2 size={14} />
+                                            <Trash2 size={16} />
                                         </button>
                                     </th>
                                 );
